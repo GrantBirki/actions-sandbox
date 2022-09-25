@@ -1,0 +1,17 @@
+name: testing-the-auditor
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  sample:
+    runs-on: ubuntu-latest
+    steps:
+      - name: auditor-action
+        uses: GrantBirki/auditor@v0.0.1

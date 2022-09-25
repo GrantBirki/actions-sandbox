@@ -1,0 +1,5 @@
+detections:
+  - type: string
+    match: "user root"
+    message: root user detected - this is not allowed, please try again
+    file_ext: '*'
