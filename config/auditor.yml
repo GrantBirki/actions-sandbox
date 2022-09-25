@@ -1,5 +1,5 @@
 detections:
   - type: string
-    match: "user root"
-    message: root user detected - this is not allowed, please try again
+    match: "i don't like green beans"
+    message: bad beans
     file_ext: '*'
