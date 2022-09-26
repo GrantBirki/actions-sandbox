@@ -13,4 +13,4 @@ global_options:
   labels:
     - alert
   exclude_regex:
-   - "\\.md$"
+   - "\\.txt$"
