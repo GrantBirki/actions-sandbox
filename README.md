@@ -1,3 +1,3 @@
 # actions-sandbox
 
-A sandbox repo for testing GitHub Actions
+A sandbox repo for testing GitHub Actions.
