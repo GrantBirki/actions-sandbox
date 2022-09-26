@@ -3,3 +3,7 @@ rules:
     name: no green beans rule
     pattern: "i don't like green beans"
     message: bad beans
+
+global_options:
+  exclude_regex:
+   - "\\.md$"
