@@ -3,3 +3,14 @@ rules:
     name: no green beans rule
     pattern: "i don't like green beans"
     message: bad beans
+    include_regex:
+      - "^.*\\.txt$"
+    exclude_regex:
+      - "^.*\\.log$"
+
+# global configuration options
+global_options:
+  labels:
+    - alert
+  exclude_regex:
+   - "\\.md$"
