@@ -22,10 +22,9 @@ jobs:
 
       - name: Issue Template Parser
         id: issue-parser
-        uses: stefanbuck/github-issue-parser@v3.0.1
+        uses: GrantBirki/actions-sandbox@spaghetti-script
         with:
           issue-body: ${{ steps.get-issue-body.outputs.body }}
-          template-path: .github/ISSUE_TEMPLATE/model_request.yml
 
       - run: echo "$ISSUE_CONTEXT"
         env:

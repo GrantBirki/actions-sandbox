@@ -1,0 +1,26 @@
+name: parse-issue
+
+on:
+  workflow_call:
+    inputs:
+      issue-body:
+        type: string
+        required: true
+        default: ""
+
+jobs:
+  parse-issue:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: checkout repo content
+        uses: actions/checkout@v2 # checkout the repository content to github runner.
+      - name: setup python
+        uses: actions/setup-python@v2
+        with:
+          python-version: 3.8 #install the python needed
+      - name: execute issue-parser script # run the run.py to get the latest data
+        run: |
+          python issue-parser.py
+        env:
+          string-to-parse: ${{ inputs.issue-body }} # if run.py requires passwords..etc, set it as secrets
