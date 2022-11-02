@@ -1,11 +1,11 @@
 
+import json
 print("Hello World!")
 
 ##### For local testing #####
-import json
 
 # Opening JSON file
-f = open('./scripts/sample-issue.json')
+f = open('./scripts/sample-issue.json', 'r')
 
 data = json.load(f)
 f.close()
