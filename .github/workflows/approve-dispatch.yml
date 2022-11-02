@@ -3,6 +3,7 @@ name: Approve Command Dispatch
 on:
   repository_dispatch:
     types: [ approve-command ]
+  workflow_dispatch:
 
 jobs:
   approve-command-dispatch:
