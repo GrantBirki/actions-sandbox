@@ -21,6 +21,8 @@ print(os.getenv("ISSUE_BODY"))
 issue_body = os.getenv("ISSUE_BODY")
 """
 
+# TODO: Maybe try using a regex
+# TODO: pull keys from the issue template
 issue_body_sections_list = issue_body.split("###")[1:]
 print(issue_body_sections_list)
 
@@ -38,3 +40,5 @@ for issue_body_section in issue_body_sections_list:
     parsed_issue_body_dict[key] = value
 
 print(parsed_issue_body_dict)
+# TODO: validations
+# TODO: move this all into a function haha
