@@ -1,7 +1,9 @@
 
 import json
+import os
 print("Hello World!")
 
+"""
 ##### For local testing #####
 
 # Opening JSON file
@@ -16,10 +18,10 @@ issue_body = data["github"]["payload"]["issue"]["body"]
 
 ##### For local testing #####
 
-""" uncomment when I can test with actions
+"""
+
 print(os.getenv("ISSUE_BODY"))
 issue_body = os.getenv("ISSUE_BODY")
-"""
 
 # TODO: Maybe try using a regex
 # TODO: pull keys from the issue template
