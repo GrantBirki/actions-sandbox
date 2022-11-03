@@ -14,7 +14,7 @@ jobs:
 
     steps:
       - name: checkout repo content
-        uses: actions/checkout@v2 # checkout the repository content to github runner.
+        uses:  actions/checkout@7884fcad6b5d53d10323aee724dc68d8b9096a2e # pin@v2.4.2
       - name: setup python
         uses: actions/setup-python@v2
         with:
