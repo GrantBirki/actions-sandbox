@@ -23,4 +23,4 @@ jobs:
         run: |
           python scripts/issue-parser.py
         env:
-          string-to-parse: ${{ inputs.issue-body }} # if run.py requires passwords..etc, set it as secrets
+          ISSUE_BODY: ${{ inputs.issue-body }} # if run.py requires passwords..etc, set it as secrets
