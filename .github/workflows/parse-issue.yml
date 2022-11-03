@@ -21,6 +21,6 @@ jobs:
           python-version: 3.8 #install the python needed
       - name: execute issue-parser script # run the run.py to get the latest data
         run: |
-          python issue-parser.py
+          python scripts/issue-parser.py
         env:
           string-to-parse: ${{ inputs.issue-body }} # if run.py requires passwords..etc, set it as secrets
