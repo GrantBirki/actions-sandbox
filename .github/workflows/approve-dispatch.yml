@@ -21,5 +21,6 @@ jobs:
           echo "::set-output name=body::$BODY"
   parse-issue-body:
     uses:  GrantBirki/actions-sandbox/.github/workflows/parse-issue.yml@spaghetti-script
+    needs: approve-command-dispatch
     with: 
-      issue-body: ${{ steps.get-issue-body.outputs.body }}
+      issue-body: ${{ needs.approve-command-dispatch.outputs.body }}
