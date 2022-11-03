@@ -22,7 +22,7 @@ jobs:
 
       - name: Issue Template Parser
         id: issue-parser
-        uses: GrantBirki/actions-sandbox@spaghetti-script
+        uses:  GrantBirki/actions-sandbox/.github/workflows/parse-issue.yml@spaghetti-script
         with:
           issue-body: ${{ steps.get-issue-body.outputs.body }}
 
