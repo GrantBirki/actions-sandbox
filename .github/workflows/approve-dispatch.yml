@@ -19,14 +19,8 @@ jobs:
         run: |
           BODY=$(echo "$PAYLOAD_CONTEXT" | jq .github.payload.issue.body)
           echo "::set-output name=body::$BODY"
-
-      - name: Issue Template Parser
-        id: issue-parser
-        uses: stefanbuck/github-issue-parser@v3.0.1
-        with:
-          issue-body: ${{ steps.get-issue-body.outputs.body }}
-          template-path: .github/ISSUE_TEMPLATE/model_request.yml
-
-      - run: echo "$ISSUE_CONTEXT"
-        env:
-          ISSUE_CONTEXT: ${{ steps.issue-parser.outputs.jsonString }}
+  parse-issue-body:
+    uses:  GrantBirki/actions-sandbox/.github/workflows/parse-issue.yml@spaghetti-script
+    needs: approve-command-dispatch
+    with: 
+      issue-body: ${{ needs.approve-command-dispatch.outputs.body }}
