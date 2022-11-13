@@ -27,4 +27,6 @@ jobs:
           body: ${{ steps.get-issue-body.outputs.body }}
 
       - name: echo body
-        run: echo ${{ steps.issue-parser.outputs.json }}
+        run: echo $ISSUE_BODY
+        env:
+          ISSUE_BODY: ${{ steps.issue-parser.outputs.json }}
