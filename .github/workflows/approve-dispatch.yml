@@ -43,4 +43,4 @@ jobs:
         run: |
           REPO_NAME=$(echo $JSON | jq -r .'ersilia_id')
           gh repo create ${OWNER}/${REPO_NAME} --template $TEMPLATE $FLAGS
-          gh issue comment $ISSUE_NUMBER --body "Created repository [`${OWNER}/${REPO_NAME}`](https://github.com/${OWNER}/${REPO_NAME}) ✨"
+          gh issue comment $ISSUE_NUMBER --body "Created repository [${OWNER}/${REPO_NAME}](https://github.com/${OWNER}/${REPO_NAME}) ✨"
