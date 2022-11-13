@@ -34,7 +34,7 @@ jobs:
       - name: check if repo exists
         env:
           OWNER: ersilia-os
-          JSON: ${{ steps.issue-parser.outputs.json.ersilia_id }}
+          JSON: ${{ steps.issue-parser.outputs.json }}
         run: |
           REPO_NAME=$(echo $JSON | jq .'ersilia_id')
 
