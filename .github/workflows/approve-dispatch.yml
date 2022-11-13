@@ -36,9 +36,6 @@ jobs:
           OWNER: ersilia-os
           JSON: ${{ steps.issue-parser.outputs.json }}
         run: |
-
-          echo $JSON | jq .'ersilia_id'
-
           REPO_NAME=$(echo $JSON | jq .'ersilia_id')
 
           URL="https://api.github.com/repos/${OWNER}/${REPO_NAME}"
@@ -46,8 +43,8 @@ jobs:
           curl -s $URL > /dev/null
 
           if [ $? -eq 0 ]; then
-            echo "Repo ${OWNER}/${REPO} already exists ❌"
+            echo "Repo ${OWNER}/${REPO_NAME} invalid repository (could already exist) ❌"
             exit 1
           fi
 
-          echo "Repo ${OWNER}/${REPO} is available ✅"
+          echo "Repo ${OWNER}/${REPO_NAME} is available ✅"
