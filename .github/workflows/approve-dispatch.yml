@@ -37,7 +37,7 @@ jobs:
           OWNER: birki-io
           JSON: ${{ steps.issue-parser.outputs.json }}
           TEMPLATE: birki-io/template
-          FLAGS: --public --disable-wiki
+          FLAGS: --public
         run: |
           REPO_NAME=$(echo $JSON | jq -r .'ersilia_id')
           gh repo create ${OWNER}/${REPO_NAME} --template $TEMPLATE $FLAGS
