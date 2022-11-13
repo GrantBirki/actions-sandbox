@@ -19,8 +19,12 @@ jobs:
         run: |
           BODY=$(echo "$PAYLOAD_CONTEXT" | jq .github.payload.issue.body)
           echo "::set-output name=body::$BODY"
-  parse-issue-body:
-    uses:  GrantBirki/actions-sandbox/.github/workflows/parse-issue.yml@spaghetti-script
-    needs: approve-command-dispatch
-    with: 
-      issue-body: ${{ needs.approve-command-dispatch.outputs.body }}
+
+      - name: parse issue
+        uses: GrantBirki/issue-template-parser@v4.0.0
+        id: issue-parser
+        with:
+          body: ${{ steps.get-issue-body.outputs.body }}
+
+      - name: echo body
+        run: echo ${{ steps.issue-parser.outputs.body }}
