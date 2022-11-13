@@ -33,7 +33,7 @@ jobs:
 
       - name: create model repo
         env:
-          GITHUB_TOKEN: ${{ secrets.ORG_PAT }}
+          GITHUB_TOKEN: ${{ secrets.PAT }}
           OWNER: birki-io
           JSON: ${{ steps.issue-parser.outputs.json }}
           TEMPLATE: birki-io/template
