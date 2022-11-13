@@ -31,7 +31,20 @@ jobs:
         env:
           ISSUE_BODY: ${{ steps.issue-parser.outputs.json }}
 
-      - name: echo repo name
-        run: echo $REPO_NAME
+      - name: check if repo exists
         env:
-          REPO_NAME: ${{ steps.issue-parser.outputs.json.ersilia_id }}
+          OWNER: ersilia-os
+          JSON: ${{ steps.issue-parser.outputs.json.ersilia_id }}
+        run: |
+          REPO_NAME=$(echo $JSON | jq .'ersilia_id')
+
+          URL="https://api.github.com/repos/$OWNER/$REPO_NAME"
+
+          curl -f -s $URL > /dev/null
+
+          if [ $? -eq 0 ]; then
+            echo "Repo ${OWNER}/${REPO} already exists ❌"
+            exit 1
+          fi
+
+          echo "Repo ${OWNER}/${REPO} is available ✅"
