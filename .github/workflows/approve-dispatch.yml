@@ -30,3 +30,8 @@ jobs:
         run: echo $ISSUE_BODY
         env:
           ISSUE_BODY: ${{ steps.issue-parser.outputs.json }}
+
+      - name: echo repo name
+        run: echo $REPO_NAME
+        env:
+          REPO_NAME: ${{ steps.issue-parser.outputs.json.ersilia_id }}
