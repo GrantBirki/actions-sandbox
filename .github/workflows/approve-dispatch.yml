@@ -34,9 +34,9 @@ jobs:
       - name: create model repo
         env:
           GITHUB_TOKEN: ${{ secrets.ORG_PAT }}
-          OWNER: ersilia-os
+          OWNER: birki-io
           JSON: ${{ steps.issue-parser.outputs.json }}
-          TEMPLATE: ersilia-os/eos-template
+          TEMPLATE: birki-io/template
           FLAGS: --public --disable-wiki
         run: |
           REPO_NAME=$(echo $JSON | jq -r .'ersilia_id')
