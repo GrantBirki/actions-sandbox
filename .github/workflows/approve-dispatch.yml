@@ -22,7 +22,7 @@ jobs:
           echo "::set-output name=number::$(echo "$PAYLOAD_CONTEXT" | jq .github.payload.issue.number)"
 
       - name: parse issue
-        uses: GrantBirki/issue-template-parser@main
+        uses: GrantBirki/issue-template-parser@fix-initial-issue-creation-bug
         id: issue-parser
         with:
           body: ${{ steps.issue-data.outputs.body }}
