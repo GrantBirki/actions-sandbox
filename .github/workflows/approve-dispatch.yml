@@ -12,20 +12,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@7884fcad6b5d53d10323aee724dc68d8b9096a2e # pin@v2.4.2
 
-      - name: Get Issue Body
-        id: issue-data
-        env:
-          PAYLOAD_CONTEXT: ${{ toJson(github.event.client_payload) }}
-        run: |
-          BODY=$(echo "$PAYLOAD_CONTEXT" | jq .github.payload.issue.body)
-          echo "::set-output name=body::$BODY"
-          echo "::set-output name=number::$(echo "$PAYLOAD_CONTEXT" | jq .github.payload.issue.number)"
-
       - name: parse issue
         uses: GrantBirki/issue-template-parser@main
         id: issue-parser
         with:
-          body: ${{ steps.issue-data.outputs.body }}
+          body: ${{ github.event.client_payload.github.payload.issue.body }}
 
       - name: echo body
         run: echo $ISSUE_BODY
@@ -39,7 +30,7 @@ jobs:
           JSON: ${{ steps.issue-parser.outputs.json }}
           TEMPLATE: birki-io/template
           FLAGS: --public
-          ISSUE_NUMBER: ${{ steps.issue-data.outputs.number }}
+          ISSUE_NUMBER: ${{ github.event.client_payload.github.payload.issue.number }}
         run: |
           REPO_NAME=$(echo $JSON | jq -r .'ersilia_id')
           gh repo create ${OWNER}/${REPO_NAME} --template $TEMPLATE $FLAGS
