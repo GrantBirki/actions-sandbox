@@ -14,6 +14,8 @@ jobs:
     if: ${{ github.event.issue.pull_request }} # only run on pull request comments
     environment: secrets
     runs-on: ubuntu-latest
+    outputs:
+      continue: ${{ steps.branch-deploy.outputs.continue }}
     steps:
       # Start the branch deployment
       - uses: github/branch-deploy@main
@@ -24,7 +26,8 @@ jobs:
   deploy:
     needs: branch-deploy
     runs-on: ubuntu-latest
-    if: ${{ steps.branch-deploy.outputs.continue == 'true' }}
+    if: ${{ needs.branch-deploy.outputs.continue == 'true' }}
+
     steps:
       # Check out the ref from the output of the IssueOps command
       - uses: actions/checkout@2541b1294d2704b0964813337f33b291d3f8596b # pin@v3.0.2
