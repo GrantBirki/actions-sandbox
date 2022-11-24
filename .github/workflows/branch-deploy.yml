@@ -14,8 +14,6 @@ jobs:
     if: ${{ github.event.issue.pull_request }} # only run on pull request comments
     environment: secrets
     runs-on: ubuntu-latest
-    outputs:
-      continue: ${{ steps.branch-deploy.outputs.continue }}
     steps:
       # Start the branch deployment
       - uses: github/branch-deploy@main
@@ -23,21 +21,18 @@ jobs:
         with:
           admins: grantbirki
 
-  deploy:
-    needs: branch-deploy
-    runs-on: ubuntu-latest
-    if: ${{ needs.branch-deploy.outputs.continue == 'true' }}
-
-    steps:
       # Check out the ref from the output of the IssueOps command
       - uses: actions/checkout@2541b1294d2704b0964813337f33b291d3f8596b # pin@v3.0.2
+        if: ${{ steps.branch-deploy.outputs.continue == 'true' }}
         with:
           ref: ${{ steps.branch-deploy.outputs.ref }}
 
       # Do some fake "noop" deployment logic here
       - name: fake noop deploy
+        if: ${{ steps.branch-deploy.outputs.continue == 'true' && steps.branch-deploy.outputs.noop == 'true' }}
         run: echo "I am doing a fake noop deploy"
 
       # Do some fake "regular" deployment logic here
       - name: fake regular deploy
+        if: ${{ steps.branch-deploy.outputs.continue == 'true' && steps.branch-deploy.outputs.noop != 'true' }}
         run: echo "I am doing a fake regular deploy"
