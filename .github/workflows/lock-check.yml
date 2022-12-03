@@ -1,0 +1,16 @@
+name: lock-check
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lock-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: github/lock@main
+        id: lock
+        with:
+          mode: check
