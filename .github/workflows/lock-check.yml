@@ -14,3 +14,7 @@ jobs:
         id: lock
         with:
           mode: check
+
+      - name: Print lock status
+        run: |
+          echo "Lock status: ${{ steps.lock.outputs.locked }}"
