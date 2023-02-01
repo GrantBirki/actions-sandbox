@@ -1,0 +1,33 @@
+name: deploy
+on:
+  push:
+    branches:
+      - main # <-- This is the default branch for your repository
+
+jobs:
+  deploy:
+    if: github.event_name == 'push' # Merge commits will trigger a push event
+    environment: production # You can configure this to whatever you call your production environment
+    runs-on: ubuntu-latest
+    steps:
+      # Call the branch-deploy Action - name it something else if you want (I did here for clarity)
+      - name: deployment check
+        uses: github/branch-deploy@main # replace with the latest version of this Action
+        id: deployment-check # ensure you have an 'id' set so you can reference the output of the Action later on
+        with:
+          merge_deploy_mode: "true" # required, tells the Action to use the merge commit workflow strategy
+          # environment: production # optional, defaults to 'production'
+
+      # Now we can conditionally 'gate' our deployment logic based on the output of the Action
+      # If the Action returns 'true' for the 'continue' output, we can continue with our deployment logic
+      # Otherwise, all subsequent steps will be skipped
+
+      # Check out the repository
+      - uses: actions/checkout@2541b1294d2704b0964813337f33b291d3f8596b # pin@v3.0.2
+        if: ${{ steps.deployment-check.outputs.continue == 'true' }} # only run if the Action returned 'true' for the 'continue' output
+
+      # Do your deployment here! (However you want to do it)
+      # This could be deployment logic via SSH, Terraform, AWS, Heroku, etc.
+      - name: fake regular deploy
+        if: ${{ steps.deployment-check.outputs.continue == 'true' }} # only run if the Action returned 'true' for the 'continue' output
+        run: echo "I am doing a fake regular deploy"
