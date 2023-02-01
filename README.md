@@ -2,4 +2,6 @@
 
 A sandbox repo for testing GitHub Actions
 
-test 1
+test 2
+
+another commit
