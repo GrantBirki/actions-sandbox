@@ -1,0 +1,17 @@
+name: unlock
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  unlock:
+    runs-on: ubuntu-latest
+    steps:
+      # Unlock
+      - uses: github/lock@main
+        id: lock
+        with:
+          mode: "unlock"

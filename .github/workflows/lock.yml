@@ -1,0 +1,22 @@
+name: lock
+
+on:
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: 'Reason for claiming the deployment lock for this repository'
+        required: false
+
+permissions:
+  contents: write
+
+jobs:
+  lock:
+    runs-on: ubuntu-latest
+    steps:
+      # Lock
+      - uses: github/lock@main
+        id: lock
+        with:
+          mode: "lock"
+          reason: ${{ github.event.inputs.reason }}
