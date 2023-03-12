@@ -18,10 +18,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       # Start the branch deployment
-      - uses: github/branch-deploy@environment-specific-locks
+      - uses: github/branch-deploy@v4.6.0
         id: branch-deploy
         with:
           admins: grantbirki
+          update_branch: warn
+          production_environment: prod
+          environment_targets: sandbox,qa,prod
+          environment: sandbox
+          skip_completing: "true"
           
       - name: deployment sha
         env:
