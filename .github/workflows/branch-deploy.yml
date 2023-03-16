@@ -22,7 +22,7 @@ jobs:
         id: branch-deploy
         with:
           admins: grantbirki
-          environment_urls: "production|https://example.com,development|''|staging.example.com"
+          environment_urls: "production|https://example.com,development|disabled,staging|staging.example.com"
           
       - name: deployment sha
         env:
