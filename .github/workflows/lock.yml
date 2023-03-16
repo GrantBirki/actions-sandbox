@@ -6,6 +6,14 @@ on:
       reason:
         description: 'Reason for claiming the deployment lock for this repository'
         required: false
+      environment:
+        description: 'The environment to claim a lock for'
+        required: true
+        default: 'production'
+      mode:
+        description: 'The mode to use: check, lock, unlock'
+        required: true
+        default: 'lock'
 
 permissions:
   contents: write
@@ -15,8 +23,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       # Lock
-      - uses: github/lock@main
+      - uses: github/lock@environment-specific-locks
         id: lock
         with:
-          mode: "lock"
+          mode: ${{ github.event.inputs.mode }}
           reason: ${{ github.event.inputs.reason }}
+          environment: ${{ github.event.inputs.environment }}
