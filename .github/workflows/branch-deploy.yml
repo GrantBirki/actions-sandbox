@@ -18,12 +18,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       # Start the branch deployment
-      - uses: github/branch-deploy@environment-url-improvements
+      - uses: github/branch-deploy@main
         id: branch-deploy
         with:
           admins: grantbirki
-          environment_urls: "production|https://example.com,development|disabled,staging|staging.example.com"
-          environment_url_in_comment: "false"
           
       - name: deployment sha
         env:
