@@ -1,0 +1,16 @@
+name: json and yaml check 
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  json-yaml-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3.5.0
+
+      - name: json-yaml-validate
+        uses: GrantBirki/json-yaml-validate@main
+        
