@@ -20,6 +20,6 @@ jobs:
         uses: GrantBirki/json-yaml-validate@main
         with:
           comment: "true"
-          json_exclude_regex: ".*test3.json"
+          json_exclude_regex: ".*test2.json"
           yaml_exclude_regex: ".*test2.yml"
         
