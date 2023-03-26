@@ -23,4 +23,5 @@ jobs:
           json_exclude_regex: ".*test2.json"
           yaml_exclude_regex: ".*test2.yml"
           yaml_schema: "test/schemas/schema.yml"
+          json_schema: "test/schemas/schema.json"
         
