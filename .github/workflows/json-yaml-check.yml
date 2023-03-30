@@ -22,3 +22,4 @@ jobs:
           comment: "true"
           json_exclude_regex: ".*test2.json"
           yaml_exclude_regex: ".*test2.yml"
+          exclude_file: test/config/exclude.txt

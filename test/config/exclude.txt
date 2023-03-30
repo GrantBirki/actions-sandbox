@@ -1,0 +1,9 @@
+# glob match
+*.bad.json
+
+# exact match
+test/exact/test1.json
+
+
+# directory match
+test/skip/
