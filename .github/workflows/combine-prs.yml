@@ -20,4 +20,4 @@ jobs:
         id: combine-prs
         uses: github/combine-prs@add-labels-feature
         with:
-          labels: dependencies
+          labels: dependencies,testing
