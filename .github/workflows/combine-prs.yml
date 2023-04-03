@@ -19,3 +19,5 @@ jobs:
       - name: combine-prs
         id: combine-prs
         uses: github/combine-prs@add-labels-feature
+        with:
+          labels: dependencies
