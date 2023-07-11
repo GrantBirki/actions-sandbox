@@ -18,7 +18,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       # Start the branch deployment
-      - uses: github/branch-deploy@bug/sticky-lock-removed-on-deployments
+      - uses: github/branch-deploy@draft-permitted-targets
         id: branch-deploy
         with:
           admins: grantbirki
@@ -30,7 +30,7 @@ jobs:
         run: echo $SHA
 
       # Check out the ref from the output of the IssueOps command
-      - uses: actions/checkout@v3.3.0
+      - uses: actions/checkout@v3
         if: ${{ steps.branch-deploy.outputs.continue == 'true' }}
         with:
           ref: ${{ steps.branch-deploy.outputs.ref }}
