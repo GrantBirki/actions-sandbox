@@ -22,8 +22,6 @@ jobs:
         id: branch-deploy
         with:
           admins: grantbirki
-          environment_targets: "production,sandbox"
-          draft_permitted_targets: "sandbox"
           
       - name: deployment sha
         env:
