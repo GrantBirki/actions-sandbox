@@ -47,4 +47,5 @@ jobs:
         run: |
           echo "I am doing a fake regular deploy"
           cat README.md
-          echo "hello world!" > "${{ runner.temp }}/DEPLOYMENT_MESSAGE.md"
+          echo "hello world!"
+          exit 1
