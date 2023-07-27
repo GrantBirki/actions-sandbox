@@ -40,7 +40,6 @@ jobs:
         run: |
           echo "I am doing a fake noop deploy"
           cat README.md
-          echo -e "### Deployment {{ status }}\n {{ actor }} deployed `{{ ref }}` to **{{ environment }}**. So cool!" > .github/deployment_message.md
 
       # Do some fake "regular" deployment logic here
       - name: fake regular deploy
@@ -48,4 +47,3 @@ jobs:
         run: |
           echo "I am doing a fake regular deploy"
           cat README.md
-          echo -e "### Deployment {{ status }}\n {{ actor }} deployed `{{ ref }}` to **{{ environment }}**. So cool!" > .github/deployment_message.md
