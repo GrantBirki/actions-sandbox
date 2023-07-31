@@ -18,7 +18,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       # Start the branch deployment
-      - uses: github/branch-deploy@file-based-post-deploy-messages
+      - uses: github/branch-deploy@octokit-retries
         id: branch-deploy
         with:
           admins: grantbirki
