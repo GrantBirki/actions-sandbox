@@ -23,7 +23,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       # Lock
-      - uses: github/lock@environment-specific-locks
+      - uses: github/lock@main
         id: lock
         with:
           mode: ${{ github.event.inputs.mode }}
