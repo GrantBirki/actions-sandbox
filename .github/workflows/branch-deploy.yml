@@ -18,7 +18,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       # Start the branch deployment
-      - uses: github/branch-deploy@lock-bug
+      - uses: github/branch-deploy@main
         id: branch-deploy
         with:
           admins: grantbirki
