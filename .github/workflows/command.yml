@@ -22,6 +22,8 @@ jobs:
         run: echo "it worked"
 
       - name: create comment
+        if: ${{ steps.command.outputs.continue == 'true' }}
         uses: GrantBirki/comment@v2.0.6
         with:
+          issue-number: ${{ steps.command.outputs.issue_number }}
           body: it worked
