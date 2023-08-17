@@ -1,0 +1,21 @@
+name: command
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  pull-requests: write
+  checks: read
+
+jobs:
+  command:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: github/command@initial-setup
+        id: command
+        with:
+          command: .test          
+      - name: deployment sha
+        if: ${{ steps.command.outputs.continue == 'true' }}
+        run: echo "it worked"
