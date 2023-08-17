@@ -7,16 +7,21 @@ on:
 permissions:
   pull-requests: write
   checks: read
-  contents: read
 
 jobs:
   command:
     runs-on: ubuntu-latest
     steps:
-      - uses: github/command@initial-setup
+      - uses: github/command@main
         id: command
         with:
-          command: .test          
-      - name: deployment sha
+          command: .test
+
+      - name: echo
         if: ${{ steps.command.outputs.continue == 'true' }}
         run: echo "it worked"
+
+      - name: create comment
+        uses: GrantBirki/comment@v2.0.6
+        with:
+          body: it worked
