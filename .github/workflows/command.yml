@@ -17,7 +17,7 @@ jobs:
         id: command
         with:
           command: .test
-          allowed_contexts: issue
+          allowed_contexts: pull_request
 
       - name: echo
         if: ${{ steps.command.outputs.continue == 'true' }}
