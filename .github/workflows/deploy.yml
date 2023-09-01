@@ -12,7 +12,7 @@ jobs:
     steps:
       # Call the branch-deploy Action - name it something else if you want (I did here for clarity)
       - name: deployment check
-        uses: github/branch-deploy@main # replace with the latest version of this Action
+        uses: github/branch-deploy@identical-commit-check-fixes # replace with the latest version of this Action
         id: deployment-check # ensure you have an 'id' set so you can reference the output of the Action later on
         with:
           merge_deploy_mode: "true" # required, tells the Action to use the merge commit workflow strategy
