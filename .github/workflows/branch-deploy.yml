@@ -22,7 +22,6 @@ jobs:
         id: branch-deploy
         with:
           admins: grantbirki
-          sticky_locks: "true"
           
       - name: deployment sha
         env:
