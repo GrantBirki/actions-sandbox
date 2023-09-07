@@ -18,7 +18,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       # Start the branch deployment
-      - uses: github/branch-deploy@hubot-style-deployment-locks
+      - uses: github/branch-deploy@identical-commit-check-fixes
         id: branch-deploy
         with:
           admins: grantbirki
