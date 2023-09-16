@@ -15,4 +15,4 @@ jobs:
 
     steps:
       - name: view github event
-        run: cat $GITHUB_EVENT_PATH | jq . | tostring 
+        run: cat $GITHUB_EVENT_PATH | jq . 
