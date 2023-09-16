@@ -1,7 +1,6 @@
 name: view-event
 
 on:
-  push:
   pull_request:
   issue_comment:
 
@@ -15,4 +14,13 @@ jobs:
 
     steps:
       - name: view github event
-        run: cat $GITHUB_EVENT_PATH | jq . 
+        run: cat $GITHUB_EVENT_PATH | jq .
+
+      - name: view github_ref
+        run: echo $GITHUB_REF
+
+      - name: view github_ref_name
+        run: echo $GITHUB_REF_NAME
+
+      - name: view sha
+        run: echo $GITHUB_SHA
