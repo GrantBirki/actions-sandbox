@@ -1,26 +1,26 @@
-name: view-event
+# name: view-event
 
-on:
-  pull_request:
-  issue_comment:
+# on:
+#   pull_request:
+#   issue_comment:
 
-permissions:
-  contents: read
+# permissions:
+#   contents: read
 
-jobs:
-  test:
-    name: test
-    runs-on: ubuntu-latest
+# jobs:
+#   test:
+#     name: test
+#     runs-on: ubuntu-latest
 
-    steps:
-      - name: view github event
-        run: cat $GITHUB_EVENT_PATH | jq .
+#     steps:
+#       - name: view github event
+#         run: cat $GITHUB_EVENT_PATH | jq .
 
-      - name: view github_ref
-        run: echo $GITHUB_REF
+#       - name: view github_ref
+#         run: echo $GITHUB_REF
 
-      - name: view github_ref_name
-        run: echo $GITHUB_REF_NAME
+#       - name: view github_ref_name
+#         run: echo $GITHUB_REF_NAME
 
-      - name: view sha
-        run: echo $GITHUB_SHA
+#       - name: view sha
+#         run: echo $GITHUB_SHA
