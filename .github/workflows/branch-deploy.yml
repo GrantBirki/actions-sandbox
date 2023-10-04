@@ -18,7 +18,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       # Start the branch deployment
-      - uses: github/branch-deploy@identical-commit-check-fixes
+      - uses: github/branch-deploy@sha-branch-or-tag-deployment
         id: branch-deploy
         with:
           admins: grantbirki
