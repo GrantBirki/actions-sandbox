@@ -18,7 +18,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       # Start the branch deployment
-      - uses: github/branch-deploy@sha-branch-or-tag-deployment
+      - uses: github/branch-deploy@prevent-naked-deploys
         id: branch-deploy
         with:
           admins: grantbirki
