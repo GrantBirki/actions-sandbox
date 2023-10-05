@@ -24,13 +24,19 @@ jobs:
           admins: grantbirki
           allow_sha_deployments: "true"
           
-      - name: deployment sha
+      - name: deployment sha / ref / sha_deployment
+        if: ${{ steps.branch-deploy.outputs.continue == 'true' }}
         env:
           SHA: ${{ steps.branch-deploy.outputs.sha }}
-        run: echo $SHA
+          REF: ${{ steps.branch-deploy.outputs.ref }}
+          SHA_DEPLOYMENT: ${{ steps.branch-deploy.outputs.sha_deployment }}
+        run: |
+          echo $SHA
+          echo $REF
+          echo $SHA_DEPLOYMENT
 
       # Check out the ref from the output of the IssueOps command
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         if: ${{ steps.branch-deploy.outputs.continue == 'true' }}
         with:
           ref: ${{ steps.branch-deploy.outputs.ref }}
