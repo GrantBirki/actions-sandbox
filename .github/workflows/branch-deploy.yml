@@ -22,6 +22,7 @@ jobs:
         id: branch-deploy
         with:
           admins: grantbirki
+          allow_sha_deployments: "true"
           
       - name: deployment sha
         env:
