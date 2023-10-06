@@ -1,11 +1,11 @@
-name: test
+name: test-tf
 
 on:
   workflow_dispatch:
 
 jobs:
   test:
-    name: "test"
+    name: test
     runs-on: ubuntu-latest
     steps:
       # create fake terraform text output
