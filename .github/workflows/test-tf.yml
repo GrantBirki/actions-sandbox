@@ -27,19 +27,19 @@ jobs:
           FILENAME: '.github/deployment_message.md'
         run: |
           echo '### Deployment Results {{ ":white_check_mark:" if status === "success" else ":x:" }}' > $FILENAME
-          echo -e "\n" >> $FILENAME
+          echo "" >> $FILENAME
           echo '{% if status === "success" %}' >> $FILENAME
           echo '**{{ actor }}** successfully{% if noop %} **noop**{% endif %} deployed branch `{{ ref }}` to **{{ environment }}**.' >> $FILENAME
           echo '{% else %}' >> $FILENAME
           echo '**{{ actor }}** encountered a **failure** when{% if noop %} **noop**{% endif %} deploying branch `{{ ref }}` to **{{ environment }}**!' >> $FILENAME
           echo '{% endif %}' >> $FILENAME
-          echo -e "\n" >> $FILENAME
+          echo "" >> $FILENAME
           echo '<details><summary>Show Results</summary>' >> $FILENAME
-          echo -e "\n" >> $FILENAME
+          echo "" >> $FILENAME
           echo '```terraform' >> $FILENAME
           echo '<%= results %> ' >> $FILENAME
           echo '```' >> $FILENAME
-          echo -e "\n" >> $FILENAME
+          echo "" >> $FILENAME
           echo '</details>' >> $FILENAME
 
       - uses: ruby/setup-ruby@52b8784594ec115fd17094752708121dc5dabb47 # pin@v1.154.0
