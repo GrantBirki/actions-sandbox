@@ -62,9 +62,8 @@ jobs:
           tf_output = File.read(TF_OUTPUT_FILE)
           # Parse the terraform output with Terratrash
           terratrash = Terratrash.new
-          tf_output = terratrash.clean(tf_output)
-          # save to a new variable so we can use it in the ERB template
-          results = output_formatted
+          results = terratrash.clean(tf_output)
+
           template = ERB.new(File.read(DEPLOY_COMMENT_TEMPLATE))
           # render the ERB template with binding
           tf_results_rendered = template.result(binding)
