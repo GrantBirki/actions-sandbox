@@ -4,8 +4,8 @@ on:
   workflow_dispatch:
 
 jobs:
-  test:
-    name: test
+  test-tf:
+    name: test-tf
     runs-on: ubuntu-latest
     steps:
       # create fake terraform text output
@@ -64,6 +64,6 @@ jobs:
           File.open(DEPLOY_COMMENT_TEMPLATE, 'w') { |file| file.write(tf_results_rendered) }
           "
 
-    - name: print results
-      run: |
-        cat .github/deployment_message.md
+      - name: print results
+        run: |
+          cat .github/deployment_message.md
