@@ -8,6 +8,11 @@ jobs:
     name: test-tf
     runs-on: ubuntu-latest
     steps:
+      # in my case, the deployment message file already exists so I remove it
+      - name: remove deployment message file
+        run: |
+          rm -f .github/deployment_message.md
+
       # create fake terraform text output
       - name: fake terraform
         run: |
@@ -16,7 +21,7 @@ jobs:
       # write the deployment_message.md template to disk
       - name: construct deployment message template
         env:
-          FILENAME: .github/deployment_message.md
+          FILENAME: '.github/deployment_message.md'
         run: |
           echo '### Deployment Results {{ ":white_check_mark:" if status === "success" else ":x:" }}' > $FILENAME
           echo "\n" >> $FILENAME
