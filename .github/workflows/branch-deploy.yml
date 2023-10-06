@@ -23,6 +23,7 @@ jobs:
         with:
           admins: grantbirki
           allow_sha_deployments: "true"
+          disable_naked_commands: "true"
           
       - name: deployment sha / ref / sha_deployment
         if: ${{ steps.branch-deploy.outputs.continue == 'true' }}
