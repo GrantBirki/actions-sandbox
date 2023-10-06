@@ -1,0 +1,69 @@
+name: test
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: "test"
+    runs-on: ubuntu-latest
+    steps:
+      # create fake terraform text output
+      - name: fake terraform
+        run: |
+          echo "hello world\n I am some terraform" > tfoutput.out
+
+      # write the deployment_message.md template to disk
+      - name: construct deployment message template
+        env:
+          FILENAME: .github/deployment_message.md
+        run: |
+          echo '### Deployment Results {{ ":white_check_mark:" if status === "success" else ":x:" }}' > $FILENAME
+          echo "\n" >> $FILENAME
+          echo '{% if status === "success" %}' >> $FILENAME
+          echo '**{{ actor }}** successfully{% if noop %} **noop**{% endif %} deployed branch `{{ ref }}` to **{{ environment }}**.' >> $FILENAME
+          echo '{% else %}' >> $FILENAME
+          echo '**{{ actor }}** encountered a **failure** when{% if noop %} **noop**{% endif %} deploying branch `{{ ref }}` to **{{ environment }}**!' >> $FILENAME
+          echo '{% endif %}' >> $FILENAME
+          echo "\n" >> $FILENAME
+          echo '<details><summary>Show Results</summary>' >> $FILENAME
+          echo "\n" >> $FILENAME
+          echo '```terraform' >> $FILENAME
+          echo '<%= results %> ' >> $FILENAME
+          echo '```' >> $FILENAME
+          echo "\n" >> $FILENAME
+          echo '</details>' >> $FILENAME
+
+      - uses: ruby/setup-ruby@52b8784594ec115fd17094752708121dc5dabb47 # pin@v1.154.0
+        with:
+          ruby-version: '3.2'
+
+      # this step will format the .github/deployment_message.md file with the terraform output
+      # in the post deploy step of the branch-deploy Action, it will get its final renderings
+      - name: terraform output formatting
+        run: |
+          gem install terratrash -v '1.0.0'
+
+          ruby -e "
+          # frozen_string_literal: true
+          require 'erb'
+          require 'terratrash'
+          DEPLOY_COMMENT_TEMPLATE = '.github/deployment_message.md'
+          TF_OUTPUT_FILE = 'tfoutput.out'
+          # Load the Terraform output file into a string
+          tf_output = File.read(TF_OUTPUT_FILE)
+          # Parse the terraform output with Terratrash
+          terratrash = Terratrash.new
+          tf_output = terratrash.clean(tf_output)
+          # save to a new variable so we can use it in the ERB template
+          results = output_formatted
+          template = ERB.new(File.read(DEPLOY_COMMENT_TEMPLATE))
+          # render the ERB template with binding
+          tf_results_rendered = template.result(binding)
+          # overwrite the original file with the new formatted output
+          File.open(DEPLOY_COMMENT_TEMPLATE, 'w') { |file| file.write(tf_results_rendered) }
+          "
+
+    - name: print results
+      run: |
+        cat .github/deployment_message.md
