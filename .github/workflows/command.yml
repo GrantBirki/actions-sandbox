@@ -1,30 +1,30 @@
-name: command
+# name: command
 
-on:
-  issue_comment:
-    types: [created]
+# on:
+#   issue_comment:
+#     types: [created]
 
-permissions:
-  pull-requests: write
-  issues: write
-  checks: read
+# permissions:
+#   pull-requests: write
+#   issues: write
+#   checks: read
 
-jobs:
-  command:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: github/command@main
-        id: command
-        with:
-          command: .test
+# jobs:
+#   command:
+#     runs-on: ubuntu-latest
+#     steps:
+#       - uses: github/command@main
+#         id: command
+#         with:
+#           command: .test
 
-      - name: echo
-        if: ${{ steps.command.outputs.continue == 'true' }}
-        run: echo "it worked"
+#       - name: echo
+#         if: ${{ steps.command.outputs.continue == 'true' }}
+#         run: echo "it worked"
 
-      - name: create comment
-        if: ${{ steps.command.outputs.continue == 'true' }}
-        uses: GrantBirki/comment@v2.0.6
-        with:
-          issue-number: ${{ steps.command.outputs.issue_number }}
-          body: it worked
+#       - name: create comment
+#         if: ${{ steps.command.outputs.continue == 'true' }}
+#         uses: GrantBirki/comment@v2.0.6
+#         with:
+#           issue-number: ${{ steps.command.outputs.issue_number }}
+#           body: it worked

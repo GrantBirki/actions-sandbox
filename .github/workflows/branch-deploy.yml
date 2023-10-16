@@ -18,7 +18,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       # Start the branch deployment
-      - uses: github/branch-deploy@prevent-naked-deploys
+      - uses: github/branch-deploy@output-msg-fixes
         id: branch-deploy
         with:
           admins: grantbirki
