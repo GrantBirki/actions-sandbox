@@ -18,12 +18,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       # Start the branch deployment
-      - uses: github/branch-deploy@v8.1.1
+      - uses: github/branch-deploy@update-base-branch-improvements
         id: branch-deploy
         with:
           admins: grantbirki
-          allow_sha_deployments: "true"
-          disable_naked_commands: "true"
           
       - name: deployment sha / ref / sha_deployment
         if: ${{ steps.branch-deploy.outputs.continue == 'true' }}
