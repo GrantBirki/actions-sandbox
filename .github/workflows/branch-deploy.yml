@@ -22,7 +22,8 @@ jobs:
         id: branch-deploy
         with:
           admins: grantbirki
-          outdated_mode: "default_branch"
+          outdated_mode: "strict"
+          update_branch: "disabled"
           
       - name: deployment sha / ref / sha_deployment
         if: ${{ steps.branch-deploy.outputs.continue == 'true' }}
