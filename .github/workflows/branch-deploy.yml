@@ -18,7 +18,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       # Start the branch deployment
-      - uses: Ugzuzg/branch-deploy@feat/required-checks
+      - uses: github/branch-deploy@main
         id: branch-deploy
         with:
           admins: grantbirki
