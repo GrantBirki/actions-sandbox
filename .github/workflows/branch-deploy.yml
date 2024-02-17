@@ -22,6 +22,7 @@ jobs:
         id: branch-deploy
         with:
           admins: grantbirki
+          checks: required
           
       - name: deployment sha / ref / sha_deployment
         if: ${{ steps.branch-deploy.outputs.continue == 'true' }}
