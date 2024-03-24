@@ -18,7 +18,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       # Start the branch deployment
-      - uses: github/branch-deploy@unlock-fixes
+      - uses: github/branch-deploy@dependabot/npm_and_yarn/npm-dependencies-6e35cb9a12
         id: branch-deploy
         with:
           admins: grantbirki
