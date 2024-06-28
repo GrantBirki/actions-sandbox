@@ -17,4 +17,4 @@ Here is an example:
 
 {% if noop %}This was a noop deployment.{% endif %}
 
-{% if noop && approved_reviews_count === '0' %}> Please make sure to get a review on this pull request as you currently have none{% endif %}
+{% if (noop) and (approved_reviews_count === '0') %}> Please make sure to get a review on this pull request as you currently have none{% endif %}
