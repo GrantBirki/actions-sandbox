@@ -16,3 +16,5 @@ Here is an example:
 {% if environment_url %}You can view the deployment [here]({{ environment_url }}).{% endif %}
 
 {% if noop %}This was a noop deployment.{% endif %}
+
+{% if approved_reviews_count === '0' %}> Please make sure to get a review on this pull request as you currently have none{% endif %}
