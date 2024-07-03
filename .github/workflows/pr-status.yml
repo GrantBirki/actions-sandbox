@@ -2,7 +2,7 @@ name: pr-status
 
 on:
   pull_request:
-    types: [opened, reopened, synchronize, review_requested, review_request_removed]
+    types: [opened, reopened, synchronize, review_requested, review_request_removed, labeled]
   pull_request_review:
     types: [submitted, dismissed]
 
