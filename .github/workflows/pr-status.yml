@@ -17,3 +17,4 @@ jobs:
       - name: outputs
         run: |
           echo "approved: ${{ steps.pr-status.outputs.approved }}"
+          echo "total approvals ${{ steps.pr-status.outputs.total_approvals }}"
