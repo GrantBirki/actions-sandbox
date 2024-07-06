@@ -1,22 +1,22 @@
-name: pr-status
+# name: pr-status
 
-on:
-  pull_request:
-    types: [opened, reopened, synchronize, review_requested, review_request_removed, labeled]
-  pull_request_review:
-    types: [submitted, dismissed]
+# on:
+#   pull_request:
+#     types: [opened, reopened, synchronize, review_requested, review_request_removed, labeled]
+#   pull_request_review:
+#     types: [submitted, dismissed]
 
-jobs:
-  pr-status:
-    runs-on: ubuntu-latest
+# jobs:
+#   pr-status:
+#     runs-on: ubuntu-latest
 
-    steps:
-      - uses: grantbirki/pr-status@main
-        id: pr-status
-        with:
-          pass_labels: ready-for-deployment
+#     steps:
+#       - uses: grantbirki/pr-status@main
+#         id: pr-status
+#         with:
+#           pass_labels: ready-for-deployment
       
-      - name: outputs
-        run: |
-          echo "approved: ${{ steps.pr-status.outputs.approved }}"
-          echo "total approvals ${{ steps.pr-status.outputs.total_approvals }}"
+#       - name: outputs
+#         run: |
+#           echo "approved: ${{ steps.pr-status.outputs.approved }}"
+#           echo "total approvals ${{ steps.pr-status.outputs.total_approvals }}"
