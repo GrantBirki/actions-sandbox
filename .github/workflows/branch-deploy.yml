@@ -33,10 +33,12 @@ jobs:
           SHA: ${{ steps.branch-deploy.outputs.sha }}
           REF: ${{ steps.branch-deploy.outputs.ref }}
           SHA_DEPLOYMENT: ${{ steps.branch-deploy.outputs.sha_deployment }}
+          COMMIT_TREE: ${{ steps.branch-deploy.outputs.default_branch_tree_sha }}
         run: |
-          echo $SHA
-          echo $REF
-          echo $SHA_DEPLOYMENT
+          echo "SHA: $SHA"
+          echo "REF: $REF"
+          echo "SHA_DEPLOYMENT: $SHA_DEPLOYMENT"
+          echo "COMMIT_TREE: $COMMIT_TREE"
 
       # Check out the ref from the output of the IssueOps command
       - uses: actions/checkout@v4
