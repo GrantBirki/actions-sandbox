@@ -26,7 +26,6 @@ jobs:
           successful_deploy_labels: deployed
           failed_deploy_labels: deploy-failed
           allow_sha_deployments: true
-          outdated_mode: 'badinput'
           
       - name: deployment sha / ref / sha_deployment
         if: ${{ steps.branch-deploy.outputs.continue == 'true' }}
