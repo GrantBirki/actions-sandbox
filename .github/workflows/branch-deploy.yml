@@ -22,11 +22,12 @@ jobs:
         id: branch-deploy
         with:
           admins: grantbirki
+          environment_targets: production,development,staging,super production,mellow staging
           successful_noop_labels: noop,read-for-review
           successful_deploy_labels: deployed
           failed_deploy_labels: deploy-failed
           allow_sha_deployments: true
-          sticky_locks: false
+          sticky_locks: true
           
       - name: deployment sha / ref / sha_deployment
         if: ${{ steps.branch-deploy.outputs.continue == 'true' }}
