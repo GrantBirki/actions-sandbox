@@ -14,8 +14,8 @@ jobs:
 
     steps:
       - name: unlock on merge
-        uses: github/branch-deploy@main
+        uses: github/branch-deploy@lock-branch-validation
         id: unlock-on-merge
         with:
           unlock_on_merge_mode: "true" # <-- indicates that this is the "Unlock on Merge Mode" workflow
-          environment_targets: 'production'
+          environment_targets: production,development,staging,super production,mellow staging
