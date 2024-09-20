@@ -28,6 +28,7 @@ jobs:
           failed_deploy_labels: deploy-failed
           allow_sha_deployments: true
           sticky_locks: true
+          enforced_deployment_order: devlopment,staging,production
           
       - name: deployment sha / ref / sha_deployment
         if: ${{ steps.branch-deploy.outputs.continue == 'true' }}
