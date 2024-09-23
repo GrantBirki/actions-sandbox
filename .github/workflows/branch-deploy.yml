@@ -79,6 +79,8 @@ jobs:
             DEPLOY_STATUS="success"
           fi
 
+          echo "updating deployment_id: ${{ needs.trigger.outputs.deployment_id }}"
+
           gh api \
             --method POST \
             repos/{owner}/{repo}/deployments/${{ needs.trigger.outputs.deployment_id }}/statuses \
