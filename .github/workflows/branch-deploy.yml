@@ -18,17 +18,17 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       # Start the branch deployment
-      - uses: github/branch-deploy@enforced-deployment-order
+      - uses: github/branch-deploy@main
         id: branch-deploy
         with:
           admins: grantbirki
-          environment_targets: production,development,staging,super production,mellow staging
+          environment_targets: Staging,Production
           successful_noop_labels: noop,read-for-review
           successful_deploy_labels: deployed
           failed_deploy_labels: deploy-failed
           allow_sha_deployments: true
           sticky_locks: true
-          enforced_deployment_order: development,staging,production
+          enforced_deployment_order: Staging,Production
           
       - name: deployment sha / ref / sha_deployment
         if: ${{ steps.branch-deploy.outputs.continue == 'true' }}
