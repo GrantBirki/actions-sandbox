@@ -1,66 +1,162 @@
-name: branch-deploy
+name: deploy
 
 on:
   issue_comment:
     types: [created]
 
-# Permissions needed for reacting and adding comments for IssueOps commands
 permissions:
   pull-requests: write
   deployments: write
   contents: write
   checks: read
+  statuses: read
 
 jobs:
-  branch-deploy:
+  trigger:
     if: ${{ github.event.issue.pull_request }} # only run on pull request comments
-#     environment: secrets
     runs-on: ubuntu-latest
+    outputs:
+      continue: ${{ steps.branch-deploy.outputs.continue }}
+      noop: ${{ steps.branch-deploy.outputs.noop }}
+      deployment_id: ${{ steps.branch-deploy.outputs.deployment_id }}
+      environment: ${{ steps.branch-deploy.outputs.environment }}
+      ref: ${{ steps.branch-deploy.outputs.ref }}
+      comment_id: ${{ steps.branch-deploy.outputs.comment_id }}
+      initial_reaction_id: ${{ steps.branch-deploy.outputs.initial_reaction_id }}
+      actor_handle: ${{ steps.branch-deploy.outputs.actor_handle }}
+
     steps:
-      # Start the branch deployment
       - uses: github/branch-deploy@main
         id: branch-deploy
         with:
           admins: grantbirki
-          environment_targets: staging,production
-          successful_noop_labels: noop,read-for-review
-          successful_deploy_labels: deployed
-          failed_deploy_labels: deploy-failed
-          allow_sha_deployments: true
           sticky_locks: true
+          trigger: ".deploy"
+          production_environments: production
+          skip_completing: 'true' # we will complete the deployment manually
+          environment_targets: staging,production
           enforced_deployment_order: staging,production
-          
-      - name: deployment sha / ref / sha_deployment
-        if: ${{ steps.branch-deploy.outputs.continue == 'true' }}
-        env:
-          SHA: ${{ steps.branch-deploy.outputs.sha }}
-          REF: ${{ steps.branch-deploy.outputs.ref }}
-          SHA_DEPLOYMENT: ${{ steps.branch-deploy.outputs.sha_deployment }}
-          COMMIT_TREE: ${{ steps.branch-deploy.outputs.default_branch_tree_sha }}
-          DEPLOYMENT_ID: ${{ steps.branch-deploy.outputs.deployment_id }}
-        run: |
-          echo "SHA: $SHA"
-          echo "REF: $REF"
-          echo "SHA_DEPLOYMENT: $SHA_DEPLOYMENT"
-          echo "COMMIT_TREE: $COMMIT_TREE"
-          echo "DEPLOYMENT_ID: $DEPLOYMENT_ID"
 
-      # Check out the ref from the output of the IssueOps command
-      - uses: actions/checkout@v4
-        if: ${{ steps.branch-deploy.outputs.continue == 'true' }}
+  deploy:
+    needs: trigger
+    if: ${{ needs.trigger.outputs.continue == 'true' && needs.trigger.outputs.noop != 'true' }}
+    runs-on: ubuntu-latest
+
+    steps:
+      # checkout the project's repository based on the ref provided by the branch-deploy step
+      - name: checkout
+        uses: actions/checkout@v4
         with:
-          ref: ${{ steps.branch-deploy.outputs.ref }}
+          ref: ${{ needs.trigger.outputs.ref }}
 
-      # Do some fake "noop" deployment logic here
-      - name: fake noop deploy
-        if: ${{ steps.branch-deploy.outputs.continue == 'true' && steps.branch-deploy.outputs.noop == 'true' }}
-        run: |
-          echo "I am doing a fake noop deploy"
-          cat README.md
-
-      # Do some fake "regular" deployment logic here
+      # You will do your own deployment here
       - name: fake regular deploy
-        if: ${{ steps.branch-deploy.outputs.continue == 'true' && steps.branch-deploy.outputs.noop != 'true' }}
+        run: echo "I am doing a fake regular deploy"
+
+  # update the deployment result - manually complete the deployment that was created by the branch-deploy action
+  result:
+    needs: [trigger, deploy]
+    runs-on: ubuntu-latest
+    # run even on failures but only if the trigger job set continue to true
+    if: ${{ always() && needs.trigger.outputs.continue == 'true' }}
+
+    steps:
+      # if a previous step failed, set a variable to use as the deployment status
+      - name: set deployment status
+        id: deploy-status
+        if: ${{ needs.trigger.result == 'failure' || needs.deploy.result == 'failure' }}
         run: |
-          echo "I am doing a fake regular deploy"
-          cat README.md
+          echo "DEPLOY_STATUS=failure" >> $GITHUB_OUTPUT
+
+      # use the GitHub CLI to update the deployment status that was initiated by the branch-deploy action
+      - name: Create a deployment status
+        env:
+          GH_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+          DEPLOY_STATUS: ${{ steps.deploy-status.outputs.DEPLOY_STATUS }}
+        run: |
+          if [ -z "${DEPLOY_STATUS}" ]; then
+            DEPLOY_STATUS="ACTIVE"
+          fi
+
+          gh api \
+            --method POST \
+            repos/{owner}/{repo}/deployments/${{ needs.trigger.outputs.deployment_id }}/statuses \
+            -f environment='${{ needs.trigger.outputs.environment }}' \
+            -f state=${DEPLOY_STATUS}
+
+      # use the GitHub CLI to remove the non-sticky lock that was created by the branch-deploy action
+      - name: Remove a non-sticky lock
+        env:
+          GH_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Fetch the lock.json file from the branch
+          gh api \
+            --method GET \
+            repos/{owner}/{repo}/contents/lock.json?ref=${{ needs.trigger.outputs.environment }}-branch-deploy-lock \
+            --jq '.content' \
+            | base64 --decode \
+            > lock.json
+
+          # Check if the sticky value is true
+          if [ "$(jq -r '.sticky' lock.json)" = "true" ]; then
+            echo "The lock is sticky, skipping the delete step"
+          else
+            # use the GitHub CLI to remove the non-sticky lock that was created by the branch-deploy action
+            echo "The lock is not sticky, deleting the lock"
+            gh api \
+              --method DELETE \
+              repos/{owner}/{repo}/git/refs/heads/${{ needs.trigger.outputs.environment }}-branch-deploy-lock
+          fi
+
+          rm lock.json
+
+      # remove the default 'eyes' reaction from the comment that triggered the deployment
+      # this reaction is added by the branch-deploy action by default
+      - name: remove eyes reaction
+        env:
+          GH_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api \
+            --method DELETE \
+            repos/{owner}/{repo}/issues/comments/${{ needs.trigger.outputs.comment_id }}/reactions/${{ needs.trigger.outputs.initial_reaction_id }}
+
+      # if the deployment was successful, add a 'rocket' reaction to the comment that triggered the deployment
+      - name: rocket reaction
+        if: ${{ steps.deploy-status.outputs.DEPLOY_STATUS != 'failure' }}
+        uses: GrantBirki/comment@e6bf4bc177996c9572b4ddb98b25eb1a80f9abc9 # pin@v2.0.7
+        with:
+          comment-id: ${{ needs.trigger.outputs.comment_id }}
+          reactions: rocket
+
+      # if the deployment failed, add a '-1' (thumbs down) reaction to the comment that triggered the deployment
+      - name: failure reaction
+        if: ${{ steps.deploy-status.outputs.DEPLOY_STATUS == 'failure' }}
+        uses: GrantBirki/comment@e6bf4bc177996c9572b4ddb98b25eb1a80f9abc9 # pin@v2.0.7
+        with:
+          comment-id: ${{ needs.trigger.outputs.comment_id }}
+          reactions: '-1'
+
+      # if the deployment was successful, add a 'success' comment
+      - name: success comment
+        if: ${{ steps.deploy-status.outputs.DEPLOY_STATUS != 'failure' }}
+        uses: peter-evans/create-or-update-comment@67dcc547d311b736a8e6c5c236542148a47adc3d # pin@v2.1.1
+        with:
+          issue-number: ${{ github.event.issue.number }}
+          body: |
+            ### Deployment Results ✅
+
+            **${{ needs.trigger.outputs.actor_handle }}** successfully deployed branch `${{ needs.trigger.outputs.ref }}` to **${{ needs.trigger.outputs.environment }}**
+
+      # if the deployment was not successful, add a 'failure' comment
+      - name: failure comment
+        if: ${{ steps.deploy-status.outputs.DEPLOY_STATUS == 'failure' }}
+        uses: peter-evans/create-or-update-comment@67dcc547d311b736a8e6c5c236542148a47adc3d # pin@v2.1.1
+        with:
+          issue-number: ${{ github.event.issue.number }}
+          body: |
+            ### Deployment Results ❌
+
+            **${{ needs.trigger.outputs.actor_handle }}** had a failure when deploying `${{ needs.trigger.outputs.ref }}` to **${{ needs.trigger.outputs.environment }}**
