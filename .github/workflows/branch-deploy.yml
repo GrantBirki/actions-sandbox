@@ -76,7 +76,7 @@ jobs:
           DEPLOY_STATUS: ${{ steps.deploy-status.outputs.DEPLOY_STATUS }}
         run: |
           if [ -z "${DEPLOY_STATUS}" ]; then
-            DEPLOY_STATUS="ACTIVE"
+            DEPLOY_STATUS="success"
           fi
 
           gh api \
