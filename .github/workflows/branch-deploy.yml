@@ -26,7 +26,7 @@ jobs:
       actor_handle: ${{ steps.branch-deploy.outputs.actor_handle }}
 
     steps:
-      - uses: github/branch-deploy@main
+      - uses: github/branch-deploy@latest-deployments-pagination
         id: branch-deploy
         with:
           admins: grantbirki
