@@ -54,7 +54,9 @@ jobs:
         run: echo "I am doing a fake regular deploy"
 
       - name: debug
-        run: echo ${{ needs.trigger.outputs.initial_comment_id }}
+        env:
+         COMMENT_ID: ${{ needs.trigger.outputs.initial_comment_id }}
+        run: echo "comment_id: $COMMENT_ID"
 
   # update the deployment result - manually complete the deployment that was created by the branch-deploy action
   result:
