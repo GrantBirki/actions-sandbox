@@ -24,6 +24,7 @@ jobs:
       comment_id: ${{ steps.branch-deploy.outputs.comment_id }}
       initial_reaction_id: ${{ steps.branch-deploy.outputs.initial_reaction_id }}
       actor_handle: ${{ steps.branch-deploy.outputs.actor_handle }}
+      initial_comment_id: ${{ steps.branch-deploy.outputs.initial_comment_id }}
 
     steps:
       - uses: github/branch-deploy@main
