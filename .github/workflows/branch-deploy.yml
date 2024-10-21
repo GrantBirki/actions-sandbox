@@ -27,6 +27,9 @@ jobs:
       initial_comment_id: ${{ steps.branch-deploy.outputs.initial_comment_id }}
 
     steps:
+      - name: sleep
+        run: sleep 25
+
       - uses: github/branch-deploy@commit-time-checks
         id: branch-deploy
         with:
