@@ -30,7 +30,7 @@ jobs:
       - name: sleep
         run: sleep 25
 
-      - uses: github/branch-deploy@commit-time-checks
+      - uses: github/branch-deploy@main
         id: branch-deploy
         with:
           admins: grantbirki
