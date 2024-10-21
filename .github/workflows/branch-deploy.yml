@@ -27,7 +27,7 @@ jobs:
       initial_comment_id: ${{ steps.branch-deploy.outputs.initial_comment_id }}
 
     steps:
-      - uses: github/branch-deploy@main
+      - uses: github/branch-deploy@commit-time-checks
         id: branch-deploy
         with:
           admins: grantbirki
