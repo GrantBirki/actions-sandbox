@@ -37,6 +37,7 @@ jobs:
         if: ${{ steps.branch-deploy.outputs.continue == 'true' && steps.branch-deploy.outputs.noop == 'true' }}
         run: |
           echo "I am doing a fake noop deploy"
+          echo "noop -> sha: ${{ steps.branch-deploy.outputs.sha }} ref: ${{ steps.branch-deploy.outputs.ref }}"
           echo "Current branch: $(git branch --show-current)"
           echo "Current commit SHA: $(git rev-parse HEAD)"
 
