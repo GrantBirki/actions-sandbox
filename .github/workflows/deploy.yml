@@ -33,6 +33,9 @@ jobs:
         run: |
           echo "I am doing a fake regular deploy"
           echo "===================="
+          echo "Current branch: $(git branch --show-current)"
+          echo "Current commit SHA: $(git rev-parse HEAD)"
+          echo "===================="
           echo "contents of the README.md:"
           cat README.md
           echo "===================="

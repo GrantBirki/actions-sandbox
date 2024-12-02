@@ -55,6 +55,7 @@ jobs:
           echo "I am doing a fake regular deploy"
           echo "params: ${{ steps.branch-deploy.outputs.params }}"
           echo "parsed_params: ${{ steps.branch-deploy.outputs.parsed_params }}"
+          echo "===================="
           echo "deployed -> sha: ${{ steps.branch-deploy.outputs.sha }} ref: ${{ steps.branch-deploy.outputs.ref }}"
           echo "Current branch: $(git branch --show-current)"
           echo "Current commit SHA: $(git rev-parse HEAD)"
