@@ -35,7 +35,10 @@ jobs:
       # conditionally run a noop deployment
       - name: fake noop deploy
         if: ${{ steps.branch-deploy.outputs.continue == 'true' && steps.branch-deploy.outputs.noop == 'true' }}
-        run: echo "I am doing a fake noop deploy"
+        run: |
+          echo "I am doing a fake noop deploy"
+          echo "Current branch: $(git branch --show-current)"
+          echo "Current commit SHA: $(git rev-parse HEAD)"
 
       # Do some fake "regular" deployment logic here
       # conditionally run a regular deployment
@@ -46,3 +49,5 @@ jobs:
           echo "params: ${{ steps.branch-deploy.outputs.params }}"
           echo "parsed_params: ${{ steps.branch-deploy.outputs.parsed_params }}"
           echo "deployed -> sha: ${{ steps.branch-deploy.outputs.sha }} ref: ${{ steps.branch-deploy.outputs.ref }}"
+          echo "Current branch: $(git branch --show-current)"
+          echo "Current commit SHA: $(git rev-parse HEAD)"
