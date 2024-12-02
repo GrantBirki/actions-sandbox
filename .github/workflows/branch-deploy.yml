@@ -17,9 +17,6 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: sleep
-        run: sleep 25
-
       - uses: github/branch-deploy@main
         id: branch-deploy
         with:
@@ -28,12 +25,11 @@ jobs:
           trigger: ".deploy"
           production_environments: production
           environment_targets: staging,production
-          enforced_deployment_order: staging,production
 
       # Checkout your projects repository based on the ref provided by the branch-deploy step
       - uses: actions/checkout@v4
         with:
-          ref: ${{ steps.branch-deploy.outputs.ref }}
+          ref: ${{ steps.branch-deploy.outputs.sha }}
 
       # Do some fake "noop" deployment logic here
       # conditionally run a noop deployment
@@ -49,3 +45,4 @@ jobs:
           echo "I am doing a fake regular deploy"
           echo "params: ${{ steps.branch-deploy.outputs.params }}"
           echo "parsed_params: ${{ steps.branch-deploy.outputs.parsed_params }}"
+          echo "deployed -> sha: ${{ steps.branch-deploy.outputs.sha }} ref: ${{ steps.branch-deploy.outputs.ref }}"
