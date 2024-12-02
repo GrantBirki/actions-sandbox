@@ -40,6 +40,9 @@ jobs:
           echo "noop -> sha: ${{ steps.branch-deploy.outputs.sha }} ref: ${{ steps.branch-deploy.outputs.ref }}"
           echo "Current branch: $(git branch --show-current)"
           echo "Current commit SHA: $(git rev-parse HEAD)"
+          echo "===================="
+          echo "contents of the README.md:"
+          cat README.md
 
       # Do some fake "regular" deployment logic here
       # conditionally run a regular deployment
@@ -52,3 +55,6 @@ jobs:
           echo "deployed -> sha: ${{ steps.branch-deploy.outputs.sha }} ref: ${{ steps.branch-deploy.outputs.ref }}"
           echo "Current branch: $(git branch --show-current)"
           echo "Current commit SHA: $(git rev-parse HEAD)"
+          echo "===================="
+          echo "contents of the README.md:"
+          cat README.md
