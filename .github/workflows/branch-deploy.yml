@@ -43,6 +43,9 @@ jobs:
           echo "===================="
           echo "contents of the README.md:"
           cat README.md
+          echo "===================="
+          echo "contents of the noop file:"
+          cat noop
 
       # Do some fake "regular" deployment logic here
       # conditionally run a regular deployment
@@ -58,3 +61,6 @@ jobs:
           echo "===================="
           echo "contents of the README.md:"
           cat README.md
+          echo "===================="
+          echo "contents of the noop file:"
+          cat noop

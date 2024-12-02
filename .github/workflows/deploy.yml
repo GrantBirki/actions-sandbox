@@ -32,4 +32,9 @@ jobs:
         if: ${{ steps.deployment-check.outputs.continue == 'true' }} # only run if the Action returned 'true' for the 'continue' output
         run: |
           echo "I am doing a fake regular deploy"
+          echo "===================="
+          echo "contents of the README.md:"
           cat README.md
+          echo "===================="
+          echo "contents of the noop file:"
+          cat noop
