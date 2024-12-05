@@ -26,7 +26,6 @@ jobs:
           production_environments: production
           environment_targets: staging,production
           allow_sha_deployments: "true"
-          skip_reviews: production
 
       # Checkout your projects repository based on the ref provided by the branch-deploy step
       - uses: actions/checkout@v4
