@@ -17,10 +17,10 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: github/branch-deploy@commit-improvements
+      - uses: github/branch-deploy@fork-deployment-safety
         id: branch-deploy
         with:
-          # admins: grantbirki
+          admins: grantbirki
           sticky_locks: true
           trigger: ".deploy"
           production_environments: production
