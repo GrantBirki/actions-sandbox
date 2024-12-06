@@ -20,6 +20,7 @@ jobs:
       - uses: github/branch-deploy@improved-messaging
         id: branch-deploy
         with:
+          admins: 'grantbirki'
           sticky_locks: true
           trigger: ".deploy"
           production_environments: production
