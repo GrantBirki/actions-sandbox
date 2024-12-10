@@ -28,6 +28,7 @@ jobs:
           commit_verification: true
           allow_sha_deployments: true
           checks: 'test1,test3'
+          ignored_checks: ''
 
       # Checkout your projects repository based on the ref provided by the branch-deploy step
       - uses: actions/checkout@v4
