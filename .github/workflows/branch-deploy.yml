@@ -27,7 +27,7 @@ jobs:
           environment_targets: staging,production
           commit_verification: true
           allow_sha_deployments: true
-          checks: ''
+          checks: 'required'
 
       # Checkout your projects repository based on the ref provided by the branch-deploy step
       - uses: actions/checkout@v4

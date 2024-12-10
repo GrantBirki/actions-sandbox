@@ -1,16 +1,16 @@
-# name: test2
+name: test2
 
-# on:
-#   pull_request:
+on:
+  pull_request:
 
-# permissions:
-#   contents: read
+permissions:
+  contents: read
 
-# jobs:
-#   test2:
-#     name: test2
-#     runs-on: ubuntu-latest
+jobs:
+  test2:
+    name: test2
+    runs-on: ubuntu-latest
 
-#     steps:
-#       - name: it will fail
-#         run: exit 1
+    steps:
+      - name: it will fail
+        run: exit 1
