@@ -17,7 +17,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: github/branch-deploy@api-version-headers
+      - uses: github/branch-deploy@total-seconds-output
         id: branch-deploy
         with:
           admins: 'grantbirki'
