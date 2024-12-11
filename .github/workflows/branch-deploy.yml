@@ -17,7 +17,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: github/branch-deploy@v9
+      - uses: github/branch-deploy@ignored-contexts
         id: branch-deploy
         with:
           admins: 'grantbirki'
@@ -27,7 +27,7 @@ jobs:
           environment_targets: staging,production
           commit_verification: true
           allow_sha_deployments: true
-          #checks: 'test1'
+          checks: 'required'
           #ignored_checks: 'test1,test3'
 
       # Checkout your projects repository based on the ref provided by the branch-deploy step
