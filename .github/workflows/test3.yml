@@ -1,0 +1,16 @@
+# name: test3
+
+# on:
+#   pull_request:
+
+# permissions:
+#   contents: read
+
+# jobs:
+#   test3:
+#     name: test3
+#     runs-on: ubuntu-latest
+
+#     steps:
+#       - name: it will fail
+#         run: exit 1

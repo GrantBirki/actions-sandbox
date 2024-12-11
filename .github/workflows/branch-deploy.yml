@@ -17,7 +17,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: github/branch-deploy@commit-verification
+      - uses: github/branch-deploy@general-improvements
         id: branch-deploy
         with:
           admins: 'grantbirki'
@@ -25,6 +25,10 @@ jobs:
           trigger: ".deploy"
           production_environments: production
           environment_targets: staging,production
+          commit_verification: true
+          #allow_sha_deployments: true
+          #checks: 'required'
+          #ignored_checks: 'test1,test3'
 
       # Checkout your projects repository based on the ref provided by the branch-deploy step
       - uses: actions/checkout@v4
