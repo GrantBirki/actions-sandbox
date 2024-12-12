@@ -26,7 +26,6 @@ jobs:
           production_environments: production
           environment_targets: staging,production
           commit_verification: true
-          use_security_warnings: false
           #allow_sha_deployments: true
           #checks: 'required'
           #ignored_checks: 'test1,test3'
