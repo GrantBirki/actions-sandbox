@@ -17,7 +17,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: github/branch-deploy@default-branch-target-checks
+      - uses: github/branch-deploy@branch-protection-checks
         id: branch-deploy
         with:
           #admins: 'grantbirki'
