@@ -20,7 +20,7 @@ jobs:
       - uses: github/branch-deploy@main
         id: branch-deploy
         with:
-          admins: 'grantbirki'
+          #admins: 'grantbirki'
           sticky_locks: true
           trigger: ".deploy"
           production_environments: production
