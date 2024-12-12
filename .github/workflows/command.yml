@@ -1,30 +1,30 @@
-# name: command
+name: "command demo"
 
-# on:
-#   issue_comment:
-#     types: [created]
+# the workflow to execute on is comments that are newly created
+on:
+  issue_comment:
+    types: [ created ]
 
-# permissions:
-#   pull-requests: write
-#   issues: write
-#   checks: read
+# permissions needed for reacting to IssueOps commands on issues and PRs
+permissions:
+  pull-requests: write
+  issues: write
+  checks: read
 
-# jobs:
-#   command:
-#     runs-on: ubuntu-latest
-#     steps:
-#       - uses: github/command@main
-#         id: command
-#         with:
-#           command: .test
+jobs:
+  demo:
+    runs-on: ubuntu-latest
+    steps:
+      # execute IssueOps command logic, hooray!
+      # this will be used to "gate" all future steps below
+      - uses: github/command@main
+        id: ping
+        with:
+          command: ".ping"
 
-#       - name: echo
-#         if: ${{ steps.command.outputs.continue == 'true' }}
-#         run: echo "it worked"
+      # run your custom logic for your project here - example seen below
 
-#       - name: create comment
-#         if: ${{ steps.command.outputs.continue == 'true' }}
-#         uses: GrantBirki/comment@v2.0.6
-#         with:
-#           issue-number: ${{ steps.command.outputs.issue_number }}
-#           body: it worked
+      # conditionally run some logic here
+      - name: ping command
+        if: ${{ steps.ping.outputs.continue == 'true' }}
+        run: echo 'Got comment in PR \#${{ steps.ping.outputs.issue_number }} with params ${{ steps.ping.outputs.params }}'
