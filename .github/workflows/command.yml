@@ -25,6 +25,8 @@ jobs:
           reaction: rocket
 
       # run your custom logic for your project here - example seen below
+      - name: sleep
+        run: sleep 3
 
       # conditionally run some logic here
       - name: ping command
