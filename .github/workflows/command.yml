@@ -22,7 +22,9 @@ jobs:
         with:
           command: ".ping"
           allowed_contexts: issue,pull_request
-          reaction: rocket
+          reaction: eyes
+          success_reaction: rocket
+          failure_reaction: '-1'
 
       # run your custom logic for your project here - example seen below
       - name: sleep
