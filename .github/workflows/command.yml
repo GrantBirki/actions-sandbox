@@ -21,6 +21,7 @@ jobs:
         id: ping
         with:
           command: ".ping"
+          allowed_contexts: issue,pull_request
 
       # run your custom logic for your project here - example seen below
 
