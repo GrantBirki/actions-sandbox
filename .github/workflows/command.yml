@@ -3,7 +3,7 @@ name: "command demo"
 # the workflow to execute on is comments that are newly created
 on:
   issue_comment:
-    types: [ created ]
+    types: [created]
 
 # permissions needed for reacting to IssueOps commands on issues and PRs
 permissions:
@@ -17,20 +17,15 @@ jobs:
     steps:
       # execute IssueOps command logic, hooray!
       # this will be used to "gate" all future steps below
-      - uses: github/command@reaction-fixes
-        id: ping
+      - uses: github/command@main
+        id: command
         with:
           command: ".ping"
-          allowed_contexts: issue,pull_request
-          reaction: eyes
-          success_reaction: rocket
-          failure_reaction: '-1'
+          allowed_contexts: issue,pull_request # run on issues AND pull requests
 
       # run your custom logic for your project here - example seen below
-      - name: sleep
-        run: sleep 3
 
       # conditionally run some logic here
-      - name: ping command
-        if: ${{ steps.ping.outputs.continue == 'true' }}
-        run: echo 'Got comment in PR \#${{ steps.ping.outputs.issue_number }} with params ${{ steps.ping.outputs.params }}'
+      - name: ping
+        if: ${{ steps.command.outputs.continue == 'true' }}
+        run: echo "I am going to ping some cool website now!"
