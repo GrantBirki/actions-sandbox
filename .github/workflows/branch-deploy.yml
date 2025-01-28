@@ -24,8 +24,11 @@ jobs:
           sticky_locks: true
           trigger: ".deploy"
           production_environments: production
-          environment_targets: staging,production
+          environment_targets: "production,stage,dev"
           commit_verification: true
+          stable_branch: "main"
+          environment: "production"
+          checks: 'quality_gate'
           #allow_sha_deployments: true
           #checks: 'required'
           #ignored_checks: 'test1,test3'
