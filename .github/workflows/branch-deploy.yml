@@ -26,7 +26,7 @@ jobs:
           production_environments: production
           environment_targets: "production,stage,dev"
           commit_verification: true
-          stable_branch: "main"
+          stable_branch: main
           environment: "production"
           checks: 'quality_gate'
           #allow_sha_deployments: true
