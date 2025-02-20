@@ -17,7 +17,7 @@ jobs:
     steps:
       # execute IssueOps command logic, hooray!
       # this will be used to "gate" all future steps below
-      - uses: github/command@fork-safety
+      - uses: github/command@main
         id: ping
         with:
           command: ".ping"
