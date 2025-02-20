@@ -1,0 +1,21 @@
+name: quality_gate
+
+on:
+  pull_request:
+    types: [labeled]
+
+jobs:
+  quality_gate:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: grantbirki/pr-status@main
+        id: pr-status
+        with:
+          pass_labels: ready-for-deployment
+          pass_labels_cleanup: lgtm
+      
+      - name: outputs
+        run: |
+          echo "approved: ${{ steps.pr-status.outputs.approved }}"
+          echo "total approvals ${{ steps.pr-status.outputs.total_approvals }}"

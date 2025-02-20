@@ -17,7 +17,7 @@ jobs:
     steps:
       # execute IssueOps command logic, hooray!
       # this will be used to "gate" all future steps below
-      - uses: github/command@main
+      - uses: github/command@fork-safety
         id: ping
         with:
           command: ".ping"
@@ -27,4 +27,5 @@ jobs:
       # conditionally run some logic here
       - name: ping command
         if: ${{ steps.ping.outputs.continue == 'true' }}
-        run: echo 'Got comment in PR \#${{ steps.ping.outputs.issue_number }} with params ${{ steps.ping.outputs.params }}'
+        run: echo 'Got comment in PR \#${{ steps.ping.outputs.issue_number }} with params ${{ steps.ping.outputs.params }} - base_ref ${{ steps.ping.outputs.base_ref }}'
+        
