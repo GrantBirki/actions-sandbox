@@ -22,7 +22,8 @@ jobs:
         with:
           command: ".ping"
           allow_forks: true
-          fork_review_bypass: false
+          skip_reviews: true
+          fork_review_bypass: true
 
       # run your custom logic for your project here - example seen below
 
