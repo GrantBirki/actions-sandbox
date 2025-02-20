@@ -21,6 +21,7 @@ jobs:
         id: ping
         with:
           command: ".ping"
+          allow_forks: true
 
       # run your custom logic for your project here - example seen below
 
