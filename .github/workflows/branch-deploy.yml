@@ -29,6 +29,7 @@ jobs:
           stable_branch: 'main'
           environment: "production"
           deployment_confirmation: true
+          deployment_confirmation_timeout: 20
           #checks: 'quality_gate'
           #allow_sha_deployments: true
           #checks: 'required'
