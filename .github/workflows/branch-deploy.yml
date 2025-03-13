@@ -17,7 +17,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: github/branch-deploy@main
+      - uses: github/branch-deploy@deployment-confirmation
         id: branch-deploy
         with:
           #admins: 'grantbirki'
@@ -28,7 +28,8 @@ jobs:
           commit_verification: true
           stable_branch: 'main'
           environment: "production"
-          checks: 'quality_gate'
+          deployment_confirmation: false
+          #checks: 'quality_gate'
           #allow_sha_deployments: true
           #checks: 'required'
           #ignored_checks: 'test1,test3'
