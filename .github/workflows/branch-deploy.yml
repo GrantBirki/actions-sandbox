@@ -28,7 +28,7 @@ jobs:
           commit_verification: true
           stable_branch: 'main'
           environment: "production"
-          deployment_confirmation: false
+          deployment_confirmation: true
           #checks: 'quality_gate'
           #allow_sha_deployments: true
           #checks: 'required'
