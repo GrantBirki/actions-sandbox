@@ -7,7 +7,7 @@ on:
     types: [submitted, dismissed]
 
 permissions:
-  # contents: read
+  contents: read
   checks: read
   statuses: read
   pull-requests: write # read works if you are not using label add/delete logic
