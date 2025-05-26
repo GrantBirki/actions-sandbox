@@ -8,7 +8,7 @@ on:
 
 permissions:
   # contents: read
-  #checks: read
+  checks: read
   #statuses: read
   pull-requests: write # read works if you are not using label add/delete logic
 
