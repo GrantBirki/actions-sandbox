@@ -10,7 +10,7 @@ permissions:
   contents: read
   checks: read
   statuses: read
-  pull-requests: read
+  pull-requests: write # read works if you are not using label add/delete logic
 
 jobs:
   pr-status:
