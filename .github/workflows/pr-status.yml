@@ -9,7 +9,6 @@ on:
 permissions:
   contents: read
   checks: read
-  #statuses: read
   pull-requests: write # read works if you are not using label add/delete logic
 
 jobs:
@@ -21,7 +20,7 @@ jobs:
         id: pr-status
         with:
           pass_labels: ready-for-deployment
-          evaluations: approved
+          evaluations: approved,ci_passing
       
       - name: outputs
         run: |
