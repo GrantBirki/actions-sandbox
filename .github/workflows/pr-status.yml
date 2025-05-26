@@ -21,6 +21,7 @@ jobs:
         id: pr-status
         with:
           pass_labels: ready-for-deployment
+          evaluations: approved,ci_passing,mergeable
       
       - name: outputs
         run: |
