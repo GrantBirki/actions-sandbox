@@ -2,12 +2,12 @@ name: pr-status
 
 on:
   pull_request:
-    types: [opened, reopened, synchronize, review_requested, review_request_removed, labeled]
+    types: [opened, reopened, synchronize, review_requested, review_request_removed, labeled, unlabeled]
   pull_request_review:
     types: [submitted, dismissed]
 
 permissions:
-  contents: read
+  # contents: read
   #checks: read
   #statuses: read
   pull-requests: write # read works if you are not using label add/delete logic
@@ -21,6 +21,7 @@ jobs:
         id: pr-status
         with:
           pass_labels: ready-for-deployment
+          evaluations: approved,ci_passing,mergeable
       
       - name: outputs
         run: |
