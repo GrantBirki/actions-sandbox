@@ -16,7 +16,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: grantbirki/pr-status@copilot/fix-39
+      - uses: grantbirki/pr-status@copilot/fix-41
         id: pr-status
         with:
           pass_labels: ready-for-deployment
