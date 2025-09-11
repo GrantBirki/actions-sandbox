@@ -36,9 +36,22 @@ jobs:
           #ignored_checks: 'test1,test3'
 
       # Checkout your projects repository based on the ref provided by the branch-deploy step
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           ref: ${{ steps.branch-deploy.outputs.sha }}
+
+      - name: view parsed json params (if present)
+        env:
+          PARSED_PARAMS: ${{ steps.branch-deploy.outputs.parsed_params }}
+        run: |
+          echo "parsed_params: $PARSED_PARAMS"
+          # if parsed_params is not empty, parse it as json and print it nicely
+          if [ -n "$PARSED_PARAMS" ]; then
+            echo "parsed_params is not empty, parsing as json:"
+            echo "$PARSED_PARAMS" | jq .
+          else
+            echo "parsed_params is empty"
+          fi
 
       # Do some fake "noop" deployment logic here
       # conditionally run a noop deployment
