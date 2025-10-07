@@ -17,7 +17,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: github/branch-deploy@main
+      - uses: github/branch-deploy@full-esm-support
         id: branch-deploy
         with:
           #admins: 'grantbirki'
