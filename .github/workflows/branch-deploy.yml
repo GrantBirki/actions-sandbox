@@ -22,6 +22,7 @@ jobs:
         with:
           #admins: 'grantbirki'
           sticky_locks: true
+          deployment_task: frontend,backend
           trigger: ".deploy"
           production_environments: production
           environment_targets: "production,stage,dev"
