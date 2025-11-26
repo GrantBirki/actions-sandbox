@@ -17,12 +17,11 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: github/branch-deploy@fixes
+      - uses: github/branch-deploy@deleted-branch-fixes
         id: branch-deploy
         with:
           #admins: 'grantbirki'
           sticky_locks: true
-          deployment_task: frontend,backend
           trigger: ".deploy"
           production_environments: production
           environment_targets: "production,stage,dev"
