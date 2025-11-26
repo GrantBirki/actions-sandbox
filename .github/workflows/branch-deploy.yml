@@ -17,24 +17,41 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: github/branch-deploy@main
+      - uses: github/branch-deploy@deleted-branch-fixes
         id: branch-deploy
         with:
           #admins: 'grantbirki'
           sticky_locks: true
           trigger: ".deploy"
           production_environments: production
-          environment_targets: staging,production
+          environment_targets: "production,stage,dev"
           commit_verification: true
-          allow_non_default_target_branch_deployments: true
+          stable_branch: 'main'
+          environment: "production"
+          deployment_confirmation: true
+          deployment_confirmation_timeout: 20
+          #checks: 'quality_gate'
           #allow_sha_deployments: true
           #checks: 'required'
           #ignored_checks: 'test1,test3'
 
       # Checkout your projects repository based on the ref provided by the branch-deploy step
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           ref: ${{ steps.branch-deploy.outputs.sha }}
+
+      - name: view parsed json params (if present)
+        env:
+          PARSED_PARAMS: ${{ steps.branch-deploy.outputs.parsed_params }}
+        run: |
+          echo "parsed_params: $PARSED_PARAMS"
+          # if parsed_params is not empty, parse it as json and print it nicely
+          if [ -n "$PARSED_PARAMS" ]; then
+            echo "parsed_params is not empty, parsing as json:"
+            echo "$PARSED_PARAMS" | jq .
+          else
+            echo "parsed_params is empty"
+          fi
 
       # Do some fake "noop" deployment logic here
       # conditionally run a noop deployment
