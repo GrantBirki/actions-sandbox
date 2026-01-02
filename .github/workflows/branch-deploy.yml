@@ -17,7 +17,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: github/branch-deploy@deleted-branch-fixes
+      - uses: grantbirki/branch-deploy@node-dep-updates
         id: branch-deploy
         with:
           #admins: 'grantbirki'
@@ -28,15 +28,15 @@ jobs:
           commit_verification: true
           stable_branch: 'main'
           environment: "production"
-          deployment_confirmation: true
-          deployment_confirmation_timeout: 20
+          #deployment_confirmation: true
+          #deployment_confirmation_timeout: 20
           #checks: 'quality_gate'
           #allow_sha_deployments: true
           #checks: 'required'
           #ignored_checks: 'test1,test3'
 
       # Checkout your projects repository based on the ref provided by the branch-deploy step
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           ref: ${{ steps.branch-deploy.outputs.sha }}
 
