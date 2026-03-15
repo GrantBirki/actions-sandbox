@@ -17,7 +17,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: grantbirki/branch-deploy@node-dep-updates
+      - uses: grantbirki/branch-deploy@bump
         id: branch-deploy
         with:
           #admins: 'grantbirki'
