@@ -14,7 +14,7 @@ jobs:
 
     steps:
       - name: unlock on merge
-        uses: grantbirki/branch-deploy@a135df25401c9513be3882f886f74e1d4d0729be
+        uses: grantbirki/branch-deploy@main
         id: unlock-on-merge
         with:
           unlock_on_merge_mode: "true" # <-- indicates that this is the "Unlock on Merge Mode" workflow
