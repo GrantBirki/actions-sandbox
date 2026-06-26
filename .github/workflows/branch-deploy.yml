@@ -17,7 +17,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: grantbirki/branch-deploy@bump
+      - uses: grantbirki/branch-deploy@main
         id: branch-deploy
         with:
           #admins: 'grantbirki'
@@ -28,6 +28,7 @@ jobs:
           commit_verification: true
           stable_branch: 'main'
           environment: "production"
+          admins: "GrantBirki"
           #deployment_confirmation: true
           #deployment_confirmation_timeout: 20
           #checks: 'quality_gate'
