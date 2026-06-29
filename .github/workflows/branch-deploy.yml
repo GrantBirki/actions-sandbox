@@ -17,7 +17,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: grantbirki/branch-deploy@8843d3fa18ed95e6f310d45bbaa058f718290628
+      - uses: grantbirki/branch-deploy@main
         id: branch-deploy
         with:
           sticky_locks: true
