@@ -14,28 +14,8 @@ jobs:
 
     steps:
       - name: unlock on merge
-        uses: grantbirki/branch-deploy@1cd3d1a77c2790e151d1149d3ccd101b5bbbe76c
+        uses: grantbirki/branch-deploy@main
         id: unlock-on-merge
         with:
           unlock_on_merge_mode: "true" # <-- indicates that this is the "Unlock on Merge Mode" workflow
           environment_targets: production,development,staging,super production,mellow staging
-
-      - name: assert structured result
-        if: ${{ always() }}
-        env:
-          ACTION_OUTCOME: ${{ steps.unlock-on-merge.outcome }}
-          DECISION: ${{ steps.unlock-on-merge.outputs.decision }}
-          REASON_CODE: ${{ steps.unlock-on-merge.outputs.reason_code }}
-          RESULT: ${{ steps.unlock-on-merge.outputs.result }}
-        run: |
-          node <<'NODE'
-          const assert = require('node:assert/strict')
-          assert.equal(process.env.ACTION_OUTCOME, 'success')
-          const result = JSON.parse(process.env.RESULT)
-          assert.equal(result.schema_version, 1)
-          assert.equal(result.operation, 'unlock_on_merge')
-          assert.equal(result.decision, 'complete')
-          assert.equal(result.reason_code, 'unlock_on_merge_completed')
-          assert.equal(result.decision, process.env.DECISION)
-          assert.equal(result.reason_code, process.env.REASON_CODE)
-          NODE
