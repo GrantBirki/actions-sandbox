@@ -12,11 +12,34 @@ jobs:
     steps:
       # Call the branch-deploy Action - name it something else if you want (I did here for clarity)
       - name: deployment check
-        uses: grantbirki/branch-deploy@main # replace with the latest version of this Action
+        uses: grantbirki/branch-deploy@ab6e76939da215167c7a9d91eae5f1a8ce8d4969 # replace with the latest version of this Action
         id: deployment-check # ensure you have an 'id' set so you can reference the output of the Action later on
         with:
           merge_deploy_mode: "true" # required, tells the Action to use the merge commit workflow strategy
           # environment: production # optional, defaults to 'production'
+
+      - name: assert structured result
+        if: ${{ always() }}
+        env:
+          ACTION_OUTCOME: ${{ steps.deployment-check.outcome }}
+          DECISION: ${{ steps.deployment-check.outputs.decision }}
+          REASON_CODE: ${{ steps.deployment-check.outputs.reason_code }}
+          RESULT: ${{ steps.deployment-check.outputs.result }}
+        run: |
+          node <<'NODE'
+          const assert = require('node:assert/strict')
+          assert.equal(process.env.ACTION_OUTCOME, 'success')
+          const result = JSON.parse(process.env.RESULT)
+          assert.equal(result.schema_version, 1)
+          assert.equal(result.operation, 'merge_deploy')
+          assert.equal(result.decision, process.env.DECISION)
+          assert.equal(result.reason_code, process.env.REASON_CODE)
+          const expected = {
+            merge_deploy_required: 'continue',
+            merge_deploy_not_required: 'stop'
+          }[result.reason_code]
+          assert.equal(result.decision, expected)
+          NODE
 
       # Now we can conditionally 'gate' our deployment logic based on the output of the Action
       # If the Action returns 'true' for the 'continue' output, we can continue with our deployment logic
