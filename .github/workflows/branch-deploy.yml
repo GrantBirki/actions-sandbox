@@ -32,8 +32,8 @@ jobs:
           environment_urls: "production|https://production.example.test,stage|https://stage.example.test,dev|disabled"
           admins: "GrantBirki"
           deploy_message_path: .github/deployment_message.md
-          #deployment_confirmation: true
-          #deployment_confirmation_timeout: 20
+          deployment_confirmation: true
+          deployment_confirmation_timeout: 20
           #checks: 'quality_gate'
           #allow_sha_deployments: true
           #checks: 'required'
