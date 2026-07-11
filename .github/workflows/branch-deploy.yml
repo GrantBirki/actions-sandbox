@@ -23,6 +23,7 @@ jobs:
           DEPLOY_MESSAGE: 'Live result with inert delimiters: {{ actor }}'
         with:
           sticky_locks: true
+          disable_lock: true
           trigger: ".deploy"
           production_environments: production
           environment_targets: "production,stage,dev"
@@ -32,10 +33,10 @@ jobs:
           environment_urls: "production|https://production.example.test,stage|https://stage.example.test,dev|disabled"
           admins: "GrantBirki"
           deploy_message_path: .github/deployment_message.md
-          deployment_confirmation: true
-          deployment_confirmation_timeout: 20
+          #deployment_confirmation: true
+          #deployment_confirmation_timeout: 20
           #checks: 'quality_gate'
-          #allow_sha_deployments: true
+          allow_sha_deployments: true
           #checks: 'required'
           #ignored_checks: 'test1,test3'
 
