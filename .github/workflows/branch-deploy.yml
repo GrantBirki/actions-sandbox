@@ -17,7 +17,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: GrantBirki/branch-deploy@8be7b00892ea7d7c1532c18da97c1dc99ecc3bf7
+      - uses: GrantBirki/branch-deploy@b4e15e5a1244a8b85d99dd63c4a6e605e5bd4851
         id: branch-deploy
         env:
           DEPLOY_MESSAGE: 'Live result with inert delimiters: {{ actor }}'
