@@ -19,6 +19,8 @@ jobs:
     steps:
       - uses: grantbirki/branch-deploy@c89e0aa0c620af41144388bf04c395ae245a2532
         id: branch-deploy
+        env:
+          DEPLOY_MESSAGE: 'Live acceptance output with inert delimiters: {{ actor }}'
         with:
           sticky_locks: true
           trigger: ".deploy"
