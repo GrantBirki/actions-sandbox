@@ -17,8 +17,10 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: grantbirki/branch-deploy@main
+      - uses: GrantBirki/branch-deploy@8be7b00892ea7d7c1532c18da97c1dc99ecc3bf7
         id: branch-deploy
+        env:
+          DEPLOY_MESSAGE: 'Live result with inert delimiters: {{ actor }}'
         with:
           sticky_locks: true
           trigger: ".deploy"
@@ -27,13 +29,61 @@ jobs:
           commit_verification: true
           stable_branch: 'main'
           environment: "production"
+          environment_urls: "production|https://production.example.test,stage|https://stage.example.test,dev|disabled"
           admins: "GrantBirki"
+          deploy_message_path: .github/deployment_message.md
           #deployment_confirmation: true
           #deployment_confirmation_timeout: 20
           #checks: 'quality_gate'
           #allow_sha_deployments: true
           #checks: 'required'
           #ignored_checks: 'test1,test3'
+
+      - name: acceptance evidence
+        if: ${{ always() }}
+        env:
+          ACTION_OUTCOME: ${{ steps.branch-deploy.outcome }}
+          COMMENT_BODY: ${{ github.event.comment.body }}
+          CONTINUE: ${{ steps.branch-deploy.outputs.continue }}
+          DECISION: ${{ steps.branch-deploy.outputs.decision }}
+          ENVIRONMENT: ${{ steps.branch-deploy.outputs.environment }}
+          ENVIRONMENT_URL: ${{ steps.branch-deploy.outputs.environment_url }}
+          NOOP: ${{ steps.branch-deploy.outputs.noop }}
+          PARAMS: ${{ steps.branch-deploy.outputs.params }}
+          PARSED_PARAMS: ${{ steps.branch-deploy.outputs.parsed_params }}
+          REASON_CODE: ${{ steps.branch-deploy.outputs.reason_code }}
+          REF: ${{ steps.branch-deploy.outputs.ref }}
+          RESULT: ${{ steps.branch-deploy.outputs.result }}
+          SHA: ${{ steps.branch-deploy.outputs.sha }}
+          TYPE: ${{ steps.branch-deploy.outputs.type }}
+        run: |
+          node <<'NODE'
+          const assert = require('node:assert/strict')
+          assert.ok(['success', 'failure'].includes(process.env.ACTION_OUTCOME))
+          assert.ok(process.env.RESULT)
+          const result = JSON.parse(process.env.RESULT)
+          assert.equal(result.schema_version, 1)
+          assert.equal(result.decision, process.env.DECISION)
+          assert.equal(result.reason_code, process.env.REASON_CODE)
+          if (process.env.PARSED_PARAMS) JSON.parse(process.env.PARSED_PARAMS)
+          const evidence = {
+            action_outcome: process.env.ACTION_OUTCOME,
+            command: process.env.COMMENT_BODY,
+            continue: process.env.CONTINUE,
+            decision: process.env.DECISION,
+            environment: process.env.ENVIRONMENT,
+            environment_url: process.env.ENVIRONMENT_URL,
+            noop: process.env.NOOP,
+            params: process.env.PARAMS,
+            parsed_params: process.env.PARSED_PARAMS,
+            reason_code: process.env.REASON_CODE,
+            ref: process.env.REF,
+            result,
+            sha: process.env.SHA,
+            type: process.env.TYPE
+          }
+          console.log(`ACCEPTANCE_EVIDENCE_B64=${Buffer.from(JSON.stringify(evidence)).toString('base64')}`)
+          NODE
 
       # Checkout your projects repository based on the ref provided by the branch-deploy step
       - uses: actions/checkout@v6
