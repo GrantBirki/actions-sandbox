@@ -22,9 +22,9 @@ jobs:
       sha: ${{ steps.branch-deploy.outputs.sha }}
 
     steps:
-      - name: Run Branch Deploy v12.0.0
+      - name: Run Branch Deploy issue 492 candidate
         id: branch-deploy
-        uses: github/branch-deploy@f0984057ffe1aa340aa017b6eafb894310aed88e # pin@v12.0.0
+        uses: GrantBirki/branch-deploy@5aa83f9d982e045fd0bd9f5a40406f444ce2253f
         with:
           trigger: '.repro492'
           stable_branch: main
