@@ -30,6 +30,7 @@ jobs:
           stable_branch: main
           environment_targets: issue-492-test,issue-492-staging
           enforced_deployment_order: issue-492-test,issue-492-staging
+          deployment_order_scope: branch-deploy
           environment: issue-492-test
           production_environments: issue-492-staging
           draft_permitted_targets: issue-492-test,issue-492-staging
