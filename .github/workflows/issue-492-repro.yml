@@ -35,6 +35,7 @@ jobs:
           draft_permitted_targets: issue-492-test,issue-492-staging
           skip_reviews: issue-492-test,issue-492-staging
           checks: required
+          update_branch: disabled
           skip_completing: true
           sticky_locks: false
           allow_forks: false
