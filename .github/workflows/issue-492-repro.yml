@@ -1,0 +1,92 @@
+name: issue-492-repro
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  checks: read
+  contents: write
+  deployments: write
+  pull-requests: write
+  statuses: read
+
+jobs:
+  trigger:
+    if: ${{ github.event.issue.pull_request && startsWith(github.event.comment.body, '.repro492') }}
+    runs-on: ubuntu-latest
+    outputs:
+      continue: ${{ steps.branch-deploy.outputs.continue }}
+      deployment_id: ${{ steps.branch-deploy.outputs.deployment_id }}
+      environment: ${{ steps.branch-deploy.outputs.environment }}
+      sha: ${{ steps.branch-deploy.outputs.sha }}
+
+    steps:
+      - name: Run Branch Deploy v12.0.0
+        id: branch-deploy
+        uses: github/branch-deploy@f0984057ffe1aa340aa017b6eafb894310aed88e # pin@v12.0.0
+        with:
+          trigger: '.repro492'
+          stable_branch: main
+          environment_targets: issue-492-test,issue-492-staging
+          enforced_deployment_order: issue-492-test,issue-492-staging
+          environment: issue-492-test
+          production_environments: issue-492-staging
+          draft_permitted_targets: issue-492-test,issue-492-staging
+          skip_reviews: issue-492-test,issue-492-staging
+          checks: required
+          skip_completing: true
+          sticky_locks: false
+          allow_forks: false
+          use_security_warnings: false
+
+      - name: Complete the Branch Deploy deployment
+        if: ${{ steps.branch-deploy.outputs.continue == 'true' }}
+        env:
+          DEPLOYMENT_ID: ${{ steps.branch-deploy.outputs.deployment_id }}
+          GH_TOKEN: ${{ github.token }}
+          TARGET_ENVIRONMENT: ${{ steps.branch-deploy.outputs.environment }}
+        run: |
+          gh api \
+            --method POST \
+            "repos/$GITHUB_REPOSITORY/deployments/$DEPLOYMENT_ID/statuses" \
+            -f environment="$TARGET_ENVIRONMENT" \
+            -f state=success
+
+      - name: Capture deployment history
+        if: ${{ always() }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_ENVIRONMENT: ${{ steps.branch-deploy.outputs.environment || 'issue-492-test' }}
+        run: |
+          echo 'REST deployment history:'
+          gh api \
+            "repos/$GITHUB_REPOSITORY/deployments?environment=$TARGET_ENVIRONMENT&per_page=10" \
+            --jq 'map({id, created_at, ref, sha, environment, payload})'
+
+          echo 'GraphQL deployment history:'
+          gh api graphql \
+            -f query='query($owner: String!, $name: String!, $environment: String!) { repository(owner: $owner, name: $name) { deployments(environments: [$environment], first: 10, orderBy: { field: CREATED_AT, direction: DESC }) { nodes { createdAt environment id payload state commit { oid } } } } }' \
+            -f owner='${{ github.repository_owner }}' \
+            -f name='${{ github.event.repository.name }}' \
+            -f environment="$TARGET_ENVIRONMENT" \
+            --jq '.data.repository.deployments.nodes'
+
+      - name: Remove the Branch Deploy lock
+        if: ${{ always() && steps.branch-deploy.outputs.continue == 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_ENVIRONMENT: ${{ steps.branch-deploy.outputs.environment }}
+        run: |
+          gh api \
+            --method DELETE \
+            "repos/$GITHUB_REPOSITORY/git/refs/heads/$TARGET_ENVIRONMENT-branch-deploy-lock"
+
+  competing-deployment:
+    if: ${{ needs.trigger.outputs.continue == 'true' && contains(github.event.comment.body, '--competing-deployment=true') }}
+    needs: trigger
+    environment: ${{ needs.trigger.outputs.environment }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create a competing GitHub Actions deployment
+        run: echo 'This job intentionally creates a second deployment for the selected environment.'
