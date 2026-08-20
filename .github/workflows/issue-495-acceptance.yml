@@ -12,7 +12,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  CANDIDATE_SHA: 117b39b39e0984d3a0fbaabe9454807f0ce5b9ae
+  CANDIDATE_SHA: 91f3edc6e3cd654587bf649f3be173a05e924762
 
 jobs:
   setup:
@@ -182,7 +182,7 @@ jobs:
       - name: Run the pinned Branch Deploy candidate
         id: branch-deploy
         continue-on-error: true
-        uses: GrantBirki/branch-deploy@117b39b39e0984d3a0fbaabe9454807f0ce5b9ae
+        uses: GrantBirki/branch-deploy@91f3edc6e3cd654587bf649f3be173a05e924762
         with:
           trigger: ${{ steps.request.outputs.trigger }}
           noop_trigger: ${{ steps.request.outputs.noop_trigger }}
