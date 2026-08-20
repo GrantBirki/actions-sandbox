@@ -1,1 +1,0 @@
-Disposable PR stack acceptance layer C.

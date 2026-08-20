@@ -1,3 +1,0 @@
-Disposable PR stack acceptance layer A.
-Normal CI is enabled for the remaining acceptance tests.
-This line is used for the stack snapshot change test.
