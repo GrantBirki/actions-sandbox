@@ -1,1 +1,2 @@
 Ordinary pull request compatibility fixture.
+Exercise pull request CI.
