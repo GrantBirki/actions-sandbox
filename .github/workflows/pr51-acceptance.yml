@@ -82,7 +82,7 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       PR_NUMBER: ${{ github.event.issue.number }}
       COMMENT_ID: ${{ github.event.comment.id }}
-      RECEIPT_DIR: ${{ runner.temp }}/pr51-main-receipt
+      RECEIPT_DIR: pr51-main-receipt
     outputs:
       prepared: ${{ steps.snapshot.outputs.prepared }}
       target: ${{ steps.request.outputs.target }}
@@ -451,7 +451,7 @@ jobs:
       FLAG_MODE: ${{ needs.acceptance.outputs.flag_mode }}
       NATIVE_STACK: ${{ needs.acceptance.outputs.native_stack }}
       COMMENT_ID: ${{ github.event.comment.id }}
-      RECEIPT_DIR: ${{ runner.temp }}/pr51-post-receipt
+      RECEIPT_DIR: pr51-post-receipt
     steps:
       - name: Verify post completion and unrelated locks
         shell: bash
