@@ -14,8 +14,8 @@ jobs:
 
     steps:
       - name: unlock on merge
-        uses: GrantBirki/branch-deploy@584f38826a1854075caa97bdc20c42535a7d0051
+        uses: grantbirki/branch-deploy@main
         id: unlock-on-merge
         with:
           unlock_on_merge_mode: "true" # <-- indicates that this is the "Unlock on Merge Mode" workflow
-          environment_targets: production,development,staging,super production,mellow staging,pr51
+          environment_targets: production,development,staging,super production,mellow staging
