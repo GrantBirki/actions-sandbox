@@ -1,2 +1,0 @@
-Second native stack compatibility fixture.
-Refresh the remaining stack after the bottom pull request merges.

@@ -1,2 +1,0 @@
-Third native stack compatibility fixture.
-Refresh the last stack member after the lower pull requests merge.
