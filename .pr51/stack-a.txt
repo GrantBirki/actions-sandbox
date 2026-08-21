@@ -1,0 +1,1 @@
+First native stack compatibility fixture.
