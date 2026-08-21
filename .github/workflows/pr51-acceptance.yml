@@ -197,7 +197,7 @@ jobs:
             printf '```\n'
           } >>"$GITHUB_STEP_SUMMARY"
 
-          locks=$(gh api "repos/$GITHUB_REPOSITORY/git/matching-refs/heads/" | jq -c '[.[] | select(.ref | endswith("-branch-deploy-lock")) | {ref,sha:.object.sha}] | sort_by(.ref)')
+          locks=$(gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/git/matching-refs/heads/" | jq -c '[.[][] | select(.ref | endswith("-branch-deploy-lock")) | {ref,sha:.object.sha}] | sort_by(.ref)')
           target_ref="refs/heads/$TARGET-branch-deploy-lock"
           jq -e 'all(.[]; .ref != "refs/heads/global-branch-deploy-lock")' <<<"$locks" >/dev/null
           printf '%s\n' "$locks" >"$RECEIPT_DIR/before-locks.json"
@@ -458,7 +458,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$RECEIPT_DIR"
-          locks=$(gh api "repos/$GITHUB_REPOSITORY/git/matching-refs/heads/" | jq -c '[.[] | select(.ref | endswith("-branch-deploy-lock")) | {ref,sha:.object.sha}] | sort_by(.ref)')
+          locks=$(gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/git/matching-refs/heads/" | jq -c '[.[][] | select(.ref | endswith("-branch-deploy-lock")) | {ref,sha:.object.sha}] | sort_by(.ref)')
           printf '%s\n' "$locks" >"$RECEIPT_DIR/after-locks.json"
           gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" -H 'X-GitHub-Api-Version: 2022-11-28' --jq '{number,state,merged,draft,base:{ref:.base.ref,sha:.base.sha},head:{ref:.head.ref,sha:.head.sha},stack_present:has("stack"),stack}' >"$RECEIPT_DIR/after-pr.json"
           target_ref="refs/heads/$TARGET-branch-deploy-lock"
