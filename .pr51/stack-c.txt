@@ -1,0 +1,1 @@
+Third native stack compatibility fixture.
