@@ -1,0 +1,540 @@
+name: pr51-acceptance
+run-name: ${{ github.event_name == 'issue_comment' && format('pr51 PR {0} comment {1}', github.event.issue.number, github.event.comment.id) || 'pr51 fixture setup' }}
+
+on:
+  workflow_dispatch:
+  issue_comment:
+    types: [created]
+
+permissions: {}
+concurrency:
+  group: pr51-acceptance
+  cancel-in-progress: false
+
+env:
+  CANDIDATE_SHA: 584f38826a1854075caa97bdc20c42535a7d0051
+  WORKFLOW_SHA: ${{ github.workflow_sha }}
+  WORKFLOW_REF: ${{ github.workflow_ref }}
+
+jobs:
+  setup:
+    if: ${{ github.event_name == 'workflow_dispatch' && github.repository == 'GrantBirki/actions-sandbox' && github.actor == 'GrantBirki' && github.triggering_actor == 'GrantBirki' && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Open the ordinary and native-stack fixture PRs
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$CANDIDATE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          pulls=()
+          base=main
+          for fixture in ordinary stack-a stack-b stack-c; do
+            head="pr51-$fixture"
+            if [[ "$fixture" == ordinary || "$fixture" == stack-a ]]; then base=main; fi
+            gh api "repos/$GITHUB_REPOSITORY/commits/$head" --jq '.commit.verification.verified' | jq -e '. == true' >/dev/null
+            gh api "repos/$GITHUB_REPOSITORY/compare/$base...$head" --jq '{status, behind_by}' | jq -e '.status == "ahead" and .behind_by == 0' >/dev/null
+            existing=$(gh api --method GET "repos/$GITHUB_REPOSITORY/pulls" -f state=open -f head="GrantBirki:$head" -f base="$base")
+            if [[ $(jq length <<<"$existing") == 0 ]]; then
+              number=$(gh api --method POST "repos/$GITHUB_REPOSITORY/pulls" -f head="$head" -f base="$base" -f title="Compatibility acceptance: $fixture" -f body='Disposable fixture for native-stack compatibility acceptance.' --jq '.number')
+            else
+              jq -e 'length == 1 and .[0].user.login == "github-actions[bot]"' <<<"$existing" >/dev/null
+              number=$(jq -r '.[0].number' <<<"$existing")
+            fi
+            if [[ "$fixture" == ordinary ]]; then
+              gh api "repos/$GITHUB_REPOSITORY/pulls/$number" -H 'X-GitHub-Api-Version: 2022-11-28' | jq -e '.base.ref == "main" and .stack == null' >/dev/null
+              printf 'Ordinary fixture: `%s`\n\n' "$number" >>"$GITHUB_STEP_SUMMARY"
+            else
+              pulls+=("$number")
+            fi
+            base="$head"
+          done
+          numbers=$(printf '%s\n' "${pulls[@]}" | jq -s '.')
+          memberships=()
+          for number in "${pulls[@]}"; do
+            memberships+=("$(gh api "repos/$GITHUB_REPOSITORY/pulls/$number" -H 'X-GitHub-Api-Version: 2022-11-28' --jq '.stack')")
+          done
+          current=$(printf '%s\n' "${memberships[@]}" | jq -s '.')
+          if jq -e 'all(.[]; . == null)' <<<"$current" >/dev/null; then
+            jq -n --argjson numbers "$numbers" '{pull_requests:$numbers}' | gh api --method POST "repos/$GITHUB_REPOSITORY/stacks" -H 'X-GitHub-Api-Version: 2026-03-10' --input - --jq '{number, base}'
+          fi
+          for number in "${pulls[@]}"; do
+            gh api graphql -f query='query($number:Int!){repository(owner:"GrantBirki",name:"actions-sandbox"){pullRequest(number:$number){stack{id number size baseRefName entries(first:100){pageInfo{hasNextPage}nodes{pullRequest{number}}}}}}}' -F number="$number" --jq '.data.repository.pullRequest.stack' | jq -e --argjson numbers "$numbers" '.id != null and .size == 3 and .baseRefName == "main" and .entries.pageInfo.hasNextPage == false and [.entries.nodes[].pullRequest.number] == $numbers' >/dev/null
+          done
+          printf 'Candidate: `%s`\n\nNative fixture PRs: `%s`\n' "$CANDIDATE_SHA" "$(jq -c . <<<"$numbers")" >>"$GITHUB_STEP_SUMMARY"
+
+  acceptance:
+    if: ${{ github.event_name == 'issue_comment' && github.repository == 'GrantBirki/actions-sandbox' && github.actor == 'GrantBirki' && github.triggering_actor == 'GrantBirki' && github.event.comment.user.login == 'GrantBirki' && github.event.issue.pull_request && startsWith(github.event.comment.body, '.pr51') && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      checks: read
+      contents: write
+      deployments: write
+      pull-requests: write
+      statuses: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      PR_NUMBER: ${{ github.event.issue.number }}
+      COMMENT_ID: ${{ github.event.comment.id }}
+      RECEIPT_DIR: ${{ runner.temp }}/pr51-main-receipt
+    outputs:
+      prepared: ${{ steps.snapshot.outputs.prepared }}
+      target: ${{ steps.request.outputs.target }}
+      sticky: ${{ steps.request.outputs.sticky }}
+      expected: ${{ steps.request.outputs.expected }}
+      expected_ref: ${{ steps.snapshot.outputs.expected_ref }}
+      before_deployments: ${{ steps.snapshot.outputs.before_deployments }}
+      before_lock: ${{ steps.snapshot.outputs.before_lock }}
+      other_locks: ${{ steps.snapshot.outputs.other_locks }}
+      flag_mode: ${{ steps.request.outputs.flag_mode }}
+      native_stack: ${{ steps.snapshot.outputs.native_stack }}
+      outcome: ${{ steps.result.outputs.outcome }}
+      operation_result: ${{ steps.result.outputs.operation_result }}
+      reason: ${{ steps.result.outputs.reason_code }}
+      deployment_id: ${{ steps.result.outputs.deployment_id }}
+      sha: ${{ steps.result.outputs.sha }}
+    steps:
+      - name: Select a fixed acceptance mode
+        id: request
+        env:
+          COMMENT_BODY: ${{ github.event.comment.body }}
+        run: |
+          python3 - <<'PY'
+          import json, os, re
+          from pathlib import Path
+          if not re.fullmatch(r'[0-9a-f]{40}', os.environ['CANDIDATE_SHA']):
+              raise SystemExit('The final candidate SHA must be pinned before running acceptance')
+          expected_workflow = os.environ['GITHUB_REPOSITORY'] + '/.github/workflows/pr51-acceptance.yml@refs/heads/main'
+          if os.environ['WORKFLOW_REF'] != expected_workflow:
+              raise SystemExit('Acceptance must execute the reviewed default-branch workflow')
+          match = re.fullmatch(r'(\.pr51(?:-(?:omitted|false|true|policy-noop|policy|sticky|confirm|noop|unlock))?)(?:[ \t]+(main))?(?:[ \t]+(?:(to)[ \t]+)?(pr51|production))?(?:[ \t]+\|[ \t]+--expect=(prechecks_failed|ref_changed))?', os.environ['COMMENT_BODY'].strip())
+          if match is None:
+              raise SystemExit('Unsupported pr51 command')
+          command, stable, preposition, target, override = match.groups()
+          operation = {'noop': 'noop', 'policy-noop': 'noop', 'unlock': 'unlock'}.get(command.removeprefix('.pr51-'), 'deploy')
+          if stable and command != '.pr51':
+              raise SystemExit('Only .pr51 supports the main rollback argument')
+          if target and ((operation in ('deploy', 'noop')) != (preposition == 'to')):
+              raise SystemExit('Use to ENV for deployments and bare ENV for lock commands')
+          if override and operation not in ('deploy', 'noop'):
+              raise SystemExit('Expected failures are only supported for deploy and noop')
+          expected = {'deploy': 'deployment_ready', 'noop': 'noop_ready', 'unlock': 'unlock_completed'}[operation]
+          values = {
+              'trigger': command if operation == 'deploy' else '.pr51',
+              'noop_trigger': command if operation == 'noop' else '.pr51-noop',
+              'flag_mode': 'omitted' if command == '.pr51-omitted' else 'false' if command == '.pr51-false' else 'true',
+              'stacks': str(command not in ('.pr51-omitted', '.pr51-false')).lower(),
+              'checks': 'test1,pr51-policy' if command in ('.pr51-policy', '.pr51-policy-noop') else 'required',
+              'sticky': str(command == '.pr51-sticky').lower(),
+              'confirm': str(command == '.pr51-confirm').lower(),
+              'operation': operation,
+              'expected': override or expected,
+              'target': target or 'pr51',
+              'stable': str(stable is not None).lower(),
+          }
+          receipt_dir = Path(os.environ['RECEIPT_DIR'])
+          receipt_dir.mkdir(parents=True, exist_ok=True)
+          (receipt_dir / 'request.json').write_text(json.dumps(values, indent=2) + '\n')
+          with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as output:
+              output.writelines(f'{key}={value}\n' for key, value in values.items())
+          PY
+
+      - name: Capture public metadata and protect existing locks
+        id: snapshot
+        env:
+          TARGET: ${{ steps.request.outputs.target }}
+          STABLE: ${{ steps.request.outputs.stable }}
+          STACKS: ${{ steps.request.outputs.stacks }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          pr=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" -H 'X-GitHub-Api-Version: 2022-11-28' --jq '{number,state,merged,draft,author:.user.login,base:{ref:.base.ref,sha:.base.sha},head:{ref:.head.ref,sha:.head.sha,repository:.head.repo.full_name},stack_present:has("stack"),stack}')
+          printf '%s\n' "$pr" >"$RECEIPT_DIR/before-pr.json"
+          jq -e --arg repo "$GITHUB_REPOSITORY" '.state == "open" and .merged == false and .author == "github-actions[bot]" and .head.repository == $repo and (.head.ref | test("^pr51-(ordinary|stack-[abc])$")) and (.head.sha | test("^[0-9a-f]{40}$"))' <<<"$pr" >/dev/null
+          native_stack=$(jq -r '.stack != null' <<<"$pr")
+          if [[ $(jq -r '.head.ref' <<<"$pr") == pr51-ordinary ]]; then
+            jq -e '.base.ref == "main" and .stack == null' <<<"$pr" >/dev/null
+          fi
+          expected_sha=$(jq -r '.head.sha' <<<"$pr")
+          expected_ref=$(jq -r '.head.ref' <<<"$pr")
+          if [[ "$STABLE" == true ]]; then
+            expected_sha=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq '.object.sha')
+            expected_ref=main
+          fi
+          stack=null
+          prefix=$(jq -c '[.number]' <<<"$pr")
+          deploy_ref="$expected_ref"
+          stack_queries=0
+          if [[ "$native_stack" == true && "$STACKS" == true && "$STABLE" != true ]]; then
+            stack=$(gh api graphql -f query='query($number:Int!){repository(owner:"GrantBirki",name:"actions-sandbox"){pullRequest(number:$number){number headRefOid stackEntry{position} stack{id number size baseRefName entries(first:100){totalCount pageInfo{hasNextPage}nodes{position pullRequest{number state headRefOid}}}}}}}' -F number="$PR_NUMBER" --jq '.data.repository.pullRequest')
+            stack_queries=1
+            jq -e --arg head "$(jq -r '.head.sha' <<<"$pr")" --argjson membership "$(jq -c '.stack' <<<"$pr")" '.headRefOid == $head and .stack != null and .stack.number == $membership.number and .stackEntry.position == $membership.position and .stack.baseRefName == $membership.base.ref and .stack.entries.pageInfo.hasNextPage == false and .stack.entries.totalCount == (.stack.entries.nodes | length)' <<<"$stack" >/dev/null
+            prefix=$(jq -c '.stackEntry.position as $position | [.stack.entries.nodes[] | select(.position <= $position and .pullRequest.state == "OPEN") | .pullRequest.number]' <<<"$stack")
+            deploy_ref="$expected_sha"
+          fi
+          printf '%s\n' "$stack" >"$RECEIPT_DIR/before-stack.json"
+          printf '%s\n' "$prefix" >"$RECEIPT_DIR/prefix.json"
+          jq -e --argjson selected "$PR_NUMBER" 'length > 0 and index($selected) != null' <<<"$prefix" >/dev/null
+          : >"$RECEIPT_DIR/before-policy.jsonl"
+          while read -r number; do
+            policy=$(gh api graphql -f query='query($number:Int!){repository(owner:"GrantBirki",name:"actions-sandbox"){pullRequest(number:$number){number state isDraft baseRefName headRefName headRefOid reviewDecision mergeStateStatus commits(last:1){nodes{commit{oid statusCheckRollup{state contexts(first:100){pageInfo{hasNextPage}nodes{__typename ... on CheckRun{databaseId name status conclusion checkSuite{app{databaseId}} isRequired(pullRequestNumber:$number)} ... on StatusContext{context state isRequired(pullRequestNumber:$number)}}}}}}}}}}' -F number="$number" --jq '.data.repository.pullRequest')
+            jq -e --argjson number "$number" '.number == $number and .state == "OPEN" and .commits.nodes[0].commit.oid == .headRefOid and (.commits.nodes[0].commit.statusCheckRollup == null or .commits.nodes[0].commit.statusCheckRollup.contexts.pageInfo.hasNextPage == false)' <<<"$policy" >/dev/null
+            reviews=$(gh api --method GET "repos/$GITHUB_REPOSITORY/pulls/$number/reviews" -f per_page=100 --jq '[.[] | {id,author:.user.login,state,commit_id}]')
+            jq -e 'length < 100' <<<"$reviews" >/dev/null
+            jq -c --argjson reviews "$reviews" '. + {reviews:$reviews}' <<<"$policy" >>"$RECEIPT_DIR/before-policy.jsonl"
+          done < <(jq -r '.[]' <<<"$prefix")
+          jq -s . "$RECEIPT_DIR/before-policy.jsonl" >"$RECEIPT_DIR/before-policy.json"
+          jq -n --arg candidate "$CANDIDATE_SHA" --arg workflow_sha "$WORKFLOW_SHA" --arg workflow_ref "$WORKFLOW_REF" --argjson native_stack "$native_stack" --argjson stack_queries "$stack_queries" --arg expected_sha "$expected_sha" --arg expected_ref "$expected_ref" --arg deploy_ref "$deploy_ref" '{candidate:$candidate,workflow_sha:$workflow_sha,workflow_ref:$workflow_ref,native_stack:$native_stack,capture_stack_queries:$stack_queries,expected_sha:$expected_sha,expected_ref:$expected_ref,deploy_ref:$deploy_ref}' >"$RECEIPT_DIR/snapshot.json"
+          {
+            printf 'Candidate: `%s`\n\nWorkflow: `%s`\n\n```json\n' "$CANDIDATE_SHA" "$WORKFLOW_SHA"
+            jq -c . "$RECEIPT_DIR/snapshot.json" "$RECEIPT_DIR/before-pr.json" "$RECEIPT_DIR/before-stack.json" "$RECEIPT_DIR/before-policy.json"
+            printf '```\n'
+          } >>"$GITHUB_STEP_SUMMARY"
+
+          locks=$(gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/git/matching-refs/heads/" | jq -c '[.[][] | select(.ref | endswith("-branch-deploy-lock")) | {ref,sha:.object.sha}] | sort_by(.ref)')
+          target_ref="refs/heads/$TARGET-branch-deploy-lock"
+          jq -e 'all(.[]; .ref != "refs/heads/global-branch-deploy-lock")' <<<"$locks" >/dev/null
+          printf '%s\n' "$locks" >"$RECEIPT_DIR/before-locks.json"
+          before_lock=$(jq -r --arg ref "$target_ref" '.[] | select(.ref == $ref) | .sha' <<<"$locks")
+          if [[ -n "$before_lock" ]]; then
+            gh api --method GET "repos/$GITHUB_REPOSITORY/contents/lock.json" -f ref="$TARGET-branch-deploy-lock" --jq '.content' | base64 --decode | jq -e --arg target "$TARGET" --arg ref "$(jq -r '.head.ref' <<<"$pr")" --arg link "https://github.com/$GITHUB_REPOSITORY/pull/$PR_NUMBER#issuecomment-" '.global == false and .environment == $target and .created_by == "GrantBirki" and .branch == $ref and (.link | startswith($link)) and (.link | ltrimstr($link) | test("^[0-9]+$"))' >/dev/null
+          fi
+          before_deployments=$(gh api --method GET "repos/$GITHUB_REPOSITORY/deployments" -f environment="$TARGET" -f per_page=100 | jq -c '[.[].id]')
+          printf '%s\n' "$before_deployments" >"$RECEIPT_DIR/before-deployment-ids.json"
+          {
+            printf 'native_stack=%s\n' "$native_stack"
+            printf 'expected_sha=%s\nexpected_ref=%s\ndeploy_ref=%s\nbase_ref=%s\n' "$expected_sha" "$expected_ref" "$deploy_ref" "$(jq -r '.base.ref' <<<"$pr")"
+            printf 'before_deployments=%s\nbefore_lock=%s\nother_locks=%s\nprepared=true\n' "$before_deployments" "$before_lock" "$(jq -c --arg ref "$target_ref" 'map(select(.ref != $ref))' <<<"$locks")"
+          } >>"$GITHUB_OUTPUT"
+
+      - name: Run the pinned candidate with the flag omitted
+        id: candidate_omitted
+        if: ${{ steps.request.outputs.flag_mode == 'omitted' }}
+        continue-on-error: true
+        uses: GrantBirki/branch-deploy@584f38826a1854075caa97bdc20c42535a7d0051
+        with:
+          trigger: ${{ steps.request.outputs.trigger }}
+          noop_trigger: ${{ steps.request.outputs.noop_trigger }}
+          lock_trigger: .pr51-lock
+          unlock_trigger: .pr51-unlock
+          help_trigger: .pr51-help
+          lock_info_alias: .pr51-wcid
+          stable_branch: main
+          environment: pr51
+          environment_targets: pr51,production
+          production_environments: production
+          admins: 'false'
+          checks: ${{ steps.request.outputs.checks }}
+          commit_verification: true
+          allow_forks: false
+          sticky_locks: ${{ steps.request.outputs.sticky }}
+          deployment_confirmation: ${{ steps.request.outputs.confirm }}
+          deployment_confirmation_timeout: 120
+
+      - name: Run the pinned candidate with an explicit flag
+        id: candidate_explicit
+        if: ${{ steps.request.outputs.flag_mode != 'omitted' }}
+        continue-on-error: true
+        uses: GrantBirki/branch-deploy@584f38826a1854075caa97bdc20c42535a7d0051
+        with:
+          trigger: ${{ steps.request.outputs.trigger }}
+          noop_trigger: ${{ steps.request.outputs.noop_trigger }}
+          lock_trigger: .pr51-lock
+          unlock_trigger: .pr51-unlock
+          help_trigger: .pr51-help
+          lock_info_alias: .pr51-wcid
+          enable_pr_stacks: ${{ steps.request.outputs.stacks }}
+          stable_branch: main
+          environment: pr51
+          environment_targets: pr51,production
+          production_environments: production
+          admins: 'false'
+          checks: ${{ steps.request.outputs.checks }}
+          commit_verification: true
+          allow_forks: false
+          sticky_locks: ${{ steps.request.outputs.sticky }}
+          deployment_confirmation: ${{ steps.request.outputs.confirm }}
+          deployment_confirmation_timeout: 120
+
+      - name: Record the selected main result
+        id: result
+        if: ${{ always() && steps.snapshot.outputs.prepared == 'true' }}
+        env:
+          FLAG_MODE: ${{ steps.request.outputs.flag_mode }}
+          OMITTED_OUTCOME: ${{ steps.candidate_omitted.outcome }}
+          OMITTED_OUTPUTS: ${{ toJSON(steps.candidate_omitted.outputs) }}
+          EXPLICIT_OUTCOME: ${{ steps.candidate_explicit.outcome }}
+          EXPLICIT_OUTPUTS: ${{ toJSON(steps.candidate_explicit.outputs) }}
+        run: |
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          receipt_dir = Path(os.environ['RECEIPT_DIR'])
+          selected = 'OMITTED' if os.environ['FLAG_MODE'] == 'omitted' else 'EXPLICIT'
+          outcome = os.environ[selected + '_OUTCOME']
+          outputs = json.loads(os.environ[selected + '_OUTPUTS'])
+          assert isinstance(outputs, dict)
+          try:
+              result = json.loads(outputs.get('result', 'null'))
+          except json.JSONDecodeError:
+              result = None
+          request = json.loads((receipt_dir / 'request.json').read_text())
+          snapshot = json.loads((receipt_dir / 'snapshot.json').read_text())
+          receipt = {
+              'kind': 'main',
+              'candidate': os.environ['CANDIDATE_SHA'],
+              'action_ref': 'GrantBirki/branch-deploy@' + os.environ['CANDIDATE_SHA'],
+              'workflow_sha': os.environ['WORKFLOW_SHA'],
+              'workflow_ref': os.environ['WORKFLOW_REF'],
+              'run_id': os.environ['GITHUB_RUN_ID'],
+              'run_attempt': os.environ['GITHUB_RUN_ATTEMPT'],
+              'comment_id': os.environ['COMMENT_ID'],
+              'pull_number': os.environ['PR_NUMBER'],
+              'flag_mode': os.environ['FLAG_MODE'],
+              'main_outcome': outcome,
+              'result': result,
+              'outputs': outputs,
+              'environment': request['target'],
+              'selected_sha': snapshot['expected_sha'],
+              'native_stack': snapshot['native_stack'],
+              'capture_stack_queries': snapshot['capture_stack_queries'],
+          }
+          (receipt_dir / 'main.json').write_text(json.dumps(receipt, indent=2) + '\n')
+          print('PR51_RECEIPT=' + json.dumps(receipt, separators=(',', ':')))
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              for key in ['decision', 'reason_code', 'continue', 'noop', 'sha', 'ref', 'base_ref', 'deployment_id', 'commit_verified', 'sha_deployment']:
+                  value = outputs.get(key, '')
+                  assert isinstance(value, str) and '\n' not in value and '\r' not in value
+                  output.write(f'{key}={value}\n')
+              output.write(f'outcome={outcome}\n')
+              output.write('operation_result=' + json.dumps(result, separators=(',', ':')) + '\n')
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as summary:
+              summary.write('```json\n' + json.dumps(receipt) + '\n```\n')
+          PY
+
+      - name: Assert the action result
+        id: receipt
+        if: ${{ always() && steps.snapshot.outputs.prepared == 'true' }}
+        env:
+          EXPECTED: ${{ steps.request.outputs.expected }}
+          OPERATION: ${{ steps.request.outputs.operation }}
+          TARGET: ${{ steps.request.outputs.target }}
+          STABLE: ${{ steps.request.outputs.stable }}
+          STACKS: ${{ steps.request.outputs.stacks }}
+          EXPECTED_SHA: ${{ steps.snapshot.outputs.expected_sha }}
+          EXPECTED_REF: ${{ steps.snapshot.outputs.expected_ref }}
+          DEPLOY_REF: ${{ steps.snapshot.outputs.deploy_ref }}
+          BASE_REF: ${{ steps.snapshot.outputs.base_ref }}
+          BEFORE_DEPLOYMENTS: ${{ steps.snapshot.outputs.before_deployments }}
+          OUTCOME: ${{ steps.result.outputs.outcome }}
+          DECISION: ${{ steps.result.outputs.decision }}
+          REASON: ${{ steps.result.outputs.reason_code }}
+          CONTINUE: ${{ steps.result.outputs.continue }}
+          NOOP: ${{ steps.result.outputs.noop }}
+          SHA: ${{ steps.result.outputs.sha }}
+          REF: ${{ steps.result.outputs.ref }}
+          ACTUAL_BASE_REF: ${{ steps.result.outputs.base_ref }}
+          DEPLOYMENT_ID: ${{ steps.result.outputs.deployment_id }}
+          VERIFIED: ${{ steps.result.outputs.commit_verified }}
+          SHA_DEPLOYMENT: ${{ steps.result.outputs.sha_deployment }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          RESULT=$(jq -r '.outputs.result' "$RECEIPT_DIR/main.json")
+          jq -nc --arg candidate "$CANDIDATE_SHA" --arg outcome "$OUTCOME" --arg expected "$EXPECTED" --argjson result "$RESULT" '{candidate:$candidate,step_outcome:$outcome,expected_reason:$expected,result:$result}' | tee -a "$GITHUB_STEP_SUMMARY"
+          jq -e --arg decision "$DECISION" --arg reason "$REASON" --arg operation "$OPERATION" '.schema_version == 1 and .decision == $decision and .reason_code == $reason and .operation == $operation' <<<"$RESULT" >/dev/null
+          [[ "$REASON" == "$EXPECTED" ]]
+          if [[ "$EXPECTED" == deployment_ready || "$EXPECTED" == noop_ready ]]; then
+            [[ "$OUTCOME" == success && "$DECISION" == continue && "$CONTINUE" == true ]]
+            [[ "$SHA" == "$EXPECTED_SHA" && "$REF" == "$EXPECTED_REF" && "$ACTUAL_BASE_REF" == "$BASE_REF" && "$VERIFIED" == true && -z "$SHA_DEPLOYMENT" ]]
+            if [[ "$OPERATION" == noop ]]; then [[ "$NOOP" == true ]]; else [[ "$NOOP" == false ]]; fi
+            jq -e --arg sha "$SHA" --arg ref "$REF" --arg target "$TARGET" '.sha == $sha and .ref == $ref and .environment == $target' <<<"$RESULT" >/dev/null
+            if [[ "$STABLE" == true ]]; then
+              [[ $(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq '.object.sha') == "$SHA" ]]
+            else
+              [[ $(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" --jq '.head.sha') == "$SHA" ]]
+            fi
+            if [[ "$STABLE" != true ]]; then
+              prefix=$(jq -c . "$RECEIPT_DIR/prefix.json")
+              jq -se --argjson prefix "$prefix" --arg operation "$OPERATION" '
+                map(select(.number as $number | $prefix | index($number))) as $selected |
+                ($selected | length) == ($prefix | length) and all($selected[]; . as $pr |
+                  .state == "OPEN" and
+                  ($operation == "noop" or (.reviewDecision == "APPROVED" and
+                    ([.reviews[] | select(.author == "GrantBirki")] | max_by(.id) |
+                      .state == "APPROVED" and .commit_id == $pr.headRefOid))) and
+                  .commits.nodes[0].commit.oid == .headRefOid and
+                  .commits.nodes[0].commit.statusCheckRollup.contexts.pageInfo.hasNextPage == false and
+                  ([.commits.nodes[0].commit.statusCheckRollup.contexts.nodes[] |
+                    select(.__typename == "CheckRun" and .name == "test1" and .checkSuite.app.databaseId == 15368)] |
+                    max_by(.databaseId) | .isRequired == true and .status == "COMPLETED" and .conclusion == "SUCCESS"))
+              ' "$RECEIPT_DIR/before-policy.jsonl" >/dev/null
+            fi
+            if [[ "$EXPECTED" == deployment_ready ]]; then
+              [[ "$DEPLOYMENT_ID" =~ ^[0-9]+$ ]]
+              jq -e --argjson id "$DEPLOYMENT_ID" '.deployment_type == "branch" and .deployment_id == $id' <<<"$RESULT" >/dev/null
+              gh api "repos/$GITHUB_REPOSITORY/deployments/$DEPLOYMENT_ID" | tee "$RECEIPT_DIR/deployment.json" | jq -e --arg sha "$SHA" --arg ref "$DEPLOY_REF" --arg target "$TARGET" --arg run_id "$GITHUB_RUN_ID" '.sha == $sha and .ref == $ref and .environment == $target and .payload.type == "branch-deploy" and .payload.sha == $sha and (.payload.github_run_id | tostring) == $run_id' >/dev/null
+            else
+              [[ -z "$DEPLOYMENT_ID" ]]
+              jq -e '.deployment_type == "noop" and .deployment_id == null' <<<"$RESULT" >/dev/null
+            fi
+          else
+            [[ "$CONTINUE" != true && -z "$DEPLOYMENT_ID" ]]
+            jq -e '.deployment_id == null' <<<"$RESULT" >/dev/null
+            case "$EXPECTED" in
+              prechecks_failed|ref_changed) [[ "$OUTCOME" == failure && "$DECISION" == failure ]] ;;
+              *) [[ "$OUTCOME" == success && "$DECISION" == complete ]] ;;
+            esac
+          fi
+          if [[ "$EXPECTED" != deployment_ready ]]; then
+            gh api --method GET "repos/$GITHUB_REPOSITORY/deployments" -f environment="$TARGET" -f per_page=100 | jq -e --argjson before "$BEFORE_DEPLOYMENTS" 'all(.[]; .id as $id | $before | index($id))' >/dev/null
+          fi
+
+      - name: Check out only the checked commit
+        if: ${{ steps.receipt.outcome == 'success' && steps.result.outputs.continue == 'true' }}
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: ${{ steps.result.outputs.sha }}
+          path: checked-commit
+          persist-credentials: false
+
+      - name: Assert checkout identity without running PR code
+        if: ${{ steps.receipt.outcome == 'success' && steps.result.outputs.continue == 'true' }}
+        env:
+          EXPECTED_SHA: ${{ steps.snapshot.outputs.expected_sha }}
+        run: |
+          set -euo pipefail
+          actual=$(git -C checked-commit rev-parse HEAD)
+          [[ "$actual" == "$EXPECTED_SHA" ]]
+          jq -n --arg candidate "$CANDIDATE_SHA" --arg expected_sha "$EXPECTED_SHA" --arg checkout_sha "$actual" '{candidate:$candidate,expected_sha:$expected_sha,checkout_sha:$checkout_sha}' >"$RECEIPT_DIR/checkout.json"
+          printf '\nChecked out: `%s`\n' "$actual" >>"$GITHUB_STEP_SUMMARY"
+
+      - name: Preserve the main and checkout receipts
+        if: ${{ always() && steps.request.outcome == 'success' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # pin@v7.0.1
+        with:
+          name: pr51-main-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ env.RECEIPT_DIR }}/
+          if-no-files-found: error
+          retention-days: 7
+
+  verify-post:
+    needs: acceptance
+    if: ${{ always() && needs.acceptance.outputs.prepared == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      deployments: read
+      pull-requests: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      PR_NUMBER: ${{ github.event.issue.number }}
+      TARGET: ${{ needs.acceptance.outputs.target }}
+      STICKY: ${{ needs.acceptance.outputs.sticky }}
+      EXPECTED_REF: ${{ needs.acceptance.outputs.expected_ref }}
+      BEFORE_DEPLOYMENTS: ${{ needs.acceptance.outputs.before_deployments }}
+      BEFORE_LOCK: ${{ needs.acceptance.outputs.before_lock }}
+      OTHER_LOCKS: ${{ needs.acceptance.outputs.other_locks }}
+      REASON: ${{ needs.acceptance.outputs.reason }}
+      DEPLOYMENT_ID: ${{ needs.acceptance.outputs.deployment_id }}
+      SHA: ${{ needs.acceptance.outputs.sha }}
+      ACCEPTANCE_RESULT: ${{ needs.acceptance.result }}
+      MAIN_OUTCOME: ${{ needs.acceptance.outputs.outcome }}
+      OPERATION_RESULT: ${{ needs.acceptance.outputs.operation_result }}
+      FLAG_MODE: ${{ needs.acceptance.outputs.flag_mode }}
+      NATIVE_STACK: ${{ needs.acceptance.outputs.native_stack }}
+      COMMENT_ID: ${{ github.event.comment.id }}
+      RECEIPT_DIR: ${{ runner.temp }}/pr51-post-receipt
+    steps:
+      - name: Verify post completion and unrelated locks
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RECEIPT_DIR"
+          locks=$(gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/git/matching-refs/heads/" | jq -c '[.[][] | select(.ref | endswith("-branch-deploy-lock")) | {ref,sha:.object.sha}] | sort_by(.ref)')
+          printf '%s\n' "$locks" >"$RECEIPT_DIR/after-locks.json"
+          gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" -H 'X-GitHub-Api-Version: 2022-11-28' --jq '{number,state,merged,draft,base:{ref:.base.ref,sha:.base.sha},head:{ref:.head.ref,sha:.head.sha},stack_present:has("stack"),stack}' >"$RECEIPT_DIR/after-pr.json"
+          target_ref="refs/heads/$TARGET-branch-deploy-lock"
+          [[ $(jq -c --arg ref "$target_ref" 'map(select(.ref != $ref))' <<<"$locks") == "$OTHER_LOCKS" ]]
+          current_lock=$(jq -r --arg ref "$target_ref" '.[] | select(.ref == $ref) | .sha' <<<"$locks")
+          if [[ "$REASON" == deployment_ready ]]; then
+            gh api "repos/$GITHUB_REPOSITORY/deployments/$DEPLOYMENT_ID/statuses" >"$RECEIPT_DIR/deployment-statuses.json"
+            state=$(jq -r '.[0].state' "$RECEIPT_DIR/deployment-statuses.json")
+            if [[ "$ACCEPTANCE_RESULT" == success ]]; then
+              [[ "$state" == success ]]
+            else
+              [[ "$state" == failure || "$state" == error ]]
+            fi
+            printf 'Deployment `%s` at `%s`: `%s`\n' "$DEPLOYMENT_ID" "$SHA" "$state" >>"$GITHUB_STEP_SUMMARY"
+          else
+            gh api --method GET "repos/$GITHUB_REPOSITORY/deployments" -f environment="$TARGET" -f per_page=100 | jq -e --argjson before "$BEFORE_DEPLOYMENTS" 'all(.[]; .id as $id | $before | index($id))' >/dev/null
+          fi
+          case "$REASON" in
+            deployment_ready|noop_ready)
+              if [[ "$STICKY" == true && "$REASON" == deployment_ready ]]; then
+                [[ -n "$current_lock" ]]
+                gh api --method GET "repos/$GITHUB_REPOSITORY/contents/lock.json" -f ref="$TARGET-branch-deploy-lock" --jq '.content' | base64 --decode | jq -e --arg ref "$EXPECTED_REF" --arg target "$TARGET" --arg link "https://github.com/$GITHUB_REPOSITORY/pull/$PR_NUMBER#issuecomment-" '.branch == $ref and .environment == $target and .sticky == true and .global == false and (.link | startswith($link))' >/dev/null
+              else
+                [[ -z "$current_lock" ]]
+              fi
+              ;;
+            unlock_completed) [[ -z "$current_lock" ]] ;;
+            *) [[ "$current_lock" == "$BEFORE_LOCK" ]] ;;
+          esac
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          receipt_dir = Path(os.environ['RECEIPT_DIR'])
+          locks = json.loads((receipt_dir / 'after-locks.json').read_text())
+          target_ref = 'refs/heads/' + os.environ['TARGET'] + '-branch-deploy-lock'
+          current_lock = next((lock['sha'] for lock in locks if lock['ref'] == target_ref), None)
+          statuses_path = receipt_dir / 'deployment-statuses.json'
+          statuses = json.loads(statuses_path.read_text()) if statuses_path.exists() else []
+          receipt = {
+              'kind': 'post',
+              'candidate': os.environ['CANDIDATE_SHA'],
+              'action_ref': 'GrantBirki/branch-deploy@' + os.environ['CANDIDATE_SHA'],
+              'workflow_sha': os.environ['WORKFLOW_SHA'],
+              'run_id': os.environ['GITHUB_RUN_ID'],
+              'run_attempt': os.environ['GITHUB_RUN_ATTEMPT'],
+              'comment_id': os.environ['COMMENT_ID'],
+              'pull_number': os.environ['PR_NUMBER'],
+              'flag_mode': os.environ['FLAG_MODE'],
+              'native_stack_before': os.environ['NATIVE_STACK'] == 'true',
+              'acceptance_result': os.environ['ACCEPTANCE_RESULT'],
+              'main_outcome': os.environ['MAIN_OUTCOME'],
+              'result': json.loads(os.environ['OPERATION_RESULT']),
+              'reason_code': os.environ['REASON'],
+              'deployment_id': os.environ['DEPLOYMENT_ID'],
+              'selected_sha': os.environ['SHA'],
+              'environment': os.environ['TARGET'],
+              'deployment_state': statuses[0]['state'] if statuses else None,
+              'lock_checks': {
+                  'unrelated_unchanged': True,
+                  'target_policy_verified': True,
+                  'target_before': os.environ['BEFORE_LOCK'] or None,
+                  'target_after': current_lock,
+              },
+          }
+          (receipt_dir / 'post.json').write_text(json.dumps(receipt, indent=2) + '\n')
+          print('PR51_RECEIPT=' + json.dumps(receipt, separators=(',', ':')))
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as summary:
+              summary.write('```json\n' + json.dumps(receipt) + '\n```\n')
+          PY
+          printf '\nUnrelated deployment locks are unchanged.\n' >>"$GITHUB_STEP_SUMMARY"
+
+      - name: Preserve the post receipts
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # pin@v7.0.1
+        with:
+          name: pr51-post-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ env.RECEIPT_DIR }}/
+          if-no-files-found: error
+          retention-days: 7
