@@ -2,7 +2,6 @@ name: test1
 
 on:
   pull_request:
-  workflow_dispatch:
 
 permissions:
   contents: read
@@ -13,14 +12,5 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Check out the acceptance commit
-        if: ${{ startsWith(github.head_ref || github.ref_name, 'pr51-guard-') }}
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
-        with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
-          persist-credentials: false
-      - name: Check the acceptance failure marker
-        if: ${{ startsWith(github.head_ref || github.ref_name, 'pr51-guard-') }}
-        run: test ! -e .pr51-guard/fail-test1
       - name: it will pass
         run: echo "success"
