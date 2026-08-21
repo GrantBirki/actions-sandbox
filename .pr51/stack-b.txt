@@ -1,0 +1,1 @@
+Second native stack compatibility fixture.
