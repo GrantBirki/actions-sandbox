@@ -1,0 +1,152 @@
+name: pr51-edge-ci
+run-name: pr51-edge ${{ inputs.mode }} ${{ github.ref_name }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Run marker checks or open disposable fixture PRs
+        type: choice
+        required: true
+        options:
+          - checks
+          - open-fixtures
+          - publish-status
+      fixtures:
+        description: Reviewed list of disposable head and base branches
+        type: string
+        default: '[]'
+      status:
+        description: Fixed legacy status for the disposable policy fixture
+        type: choice
+        options:
+          - pending
+          - failure
+          - success
+        default: success
+      expected_sha:
+        description: Exact fixture commit for a legacy status
+        type: string
+        default: ''
+
+permissions: {}
+
+jobs:
+  publish-status:
+    if: ${{ inputs.mode == 'publish-status' && (github.repository == 'GrantBirki/actions-sandbox' || github.repository == 'GrantBirki/actions-sandbox-pr51-fork') && github.actor == 'GrantBirki' && github.triggering_actor == 'GrantBirki' && (github.ref == 'refs/heads/pr51-edge-policy-a' || github.ref == 'refs/heads/pr51-edge-policy-b') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      statuses: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      STATUS_STATE: ${{ inputs.status }}
+      EXPECTED_SHA: ${{ inputs.expected_sha }}
+    steps:
+      - name: Publish a real legacy commit status from GitHub Actions
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$EXPECTED_SHA" =~ ^[0-9a-f]{40}$ && "$GITHUB_SHA" == "$EXPECTED_SHA" ]]
+          [[ "$STATUS_STATE" =~ ^(pending|failure|success)$ ]]
+          [[ $(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$GITHUB_REF_NAME" --jq '.object.sha') == "$EXPECTED_SHA" ]]
+          gh api "repos/$GITHUB_REPOSITORY/commits/$EXPECTED_SHA" --jq '.commit.verification.verified' | jq -e '. == true' >/dev/null
+          jq -n --arg state "$STATUS_STATE" --arg url "https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" '{state:$state,context:"pr51-edge-legacy",description:"Disposable PR stack policy acceptance.",target_url:$url}' | gh api --method POST "repos/$GITHUB_REPOSITORY/statuses/$EXPECTED_SHA" --input - --jq '{id,state,context,target_url,creator:.creator.login}' | jq --arg repo "$GITHUB_REPOSITORY" --arg branch "$GITHUB_REF_NAME" --arg sha "$EXPECTED_SHA" '. + {repository:$repo,branch:$branch,sha:$sha}' | tee status.json
+      - name: Preserve the status receipt
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: pr51-edge-status-${{ github.run_id }}-${{ github.run_attempt }}
+          path: status.json
+          if-no-files-found: error
+          retention-days: 7
+
+  test1:
+    if: ${{ inputs.mode == 'checks' && (github.repository == 'GrantBirki/actions-sandbox' || github.repository == 'GrantBirki/actions-sandbox-pr51-fork') && github.actor == 'GrantBirki' && github.triggering_actor == 'GrantBirki' && startsWith(github.ref, 'refs/heads/pr51-edge-') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Check the signed marker commit without executing repository code
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_REF_NAME" =~ ^pr51-edge-[a-z-]+$ ]]
+          [[ "$GITHUB_SHA" =~ ^[0-9a-f]{40}$ ]]
+          gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA" --jq '{sha,verified:.commit.verification.verified}' | jq -e --arg sha "$GITHUB_SHA" '.sha == $sha and .verified == true' >/dev/null
+          gh api --method GET "repos/$GITHUB_REPOSITORY/contents/.pr51-edge" -f ref="$GITHUB_SHA" | jq -e 'length > 0 and all(.[]; .type == "file" and (.name | test("^[a-z-]+[.]txt$")))' >/dev/null
+          printf 'Checked signed marker commit `%s` without executing PR code.\n' "$GITHUB_SHA" >>"$GITHUB_STEP_SUMMARY"
+
+  open-fixtures:
+    if: ${{ inputs.mode == 'open-fixtures' && (github.repository == 'GrantBirki/actions-sandbox' || github.repository == 'GrantBirki/actions-sandbox-pr51-fork') && github.actor == 'GrantBirki' && github.triggering_actor == 'GrantBirki' && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      FIXTURES: ${{ inputs.fixtures }}
+    steps:
+      - name: Open only reviewed marker-only fixture PRs
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, os, re, subprocess
+          from pathlib import Path
+
+          repo = os.environ['GITHUB_REPOSITORY']
+          assert repo in ('GrantBirki/actions-sandbox', 'GrantBirki/actions-sandbox-pr51-fork')
+          fixtures = json.loads(os.environ['FIXTURES'])
+          assert isinstance(fixtures, list) and 1 <= len(fixtures) <= 8
+          assert all(isinstance(item, dict) and set(item) == {'head', 'base'} for item in fixtures)
+          assert len({item['head'] for item in fixtures}) == len(fixtures)
+
+          def api(route, method='GET', body=None):
+              args = ['gh', 'api', '--method', method, f'repos/{repo}/{route}', '-H', 'X-GitHub-Api-Version: 2022-11-28']
+              if body is not None:
+                  args += ['--input', '-']
+              result = subprocess.run(args, input=None if body is None else json.dumps(body), text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=30)
+              if result.returncode:
+                  raise RuntimeError(f'Fixture API request failed: {method} {route}')
+              return json.loads(result.stdout)
+
+          records = []
+          for item in fixtures:
+              head, base = item['head'], item['base']
+              assert all(isinstance(ref, str) and re.fullmatch(r'pr51-edge-[a-z-]+', ref) for ref in (head, base))
+              assert head not in ('pr51-edge-policy-base', 'pr51-edge-stack-base') and head != base
+              base_commit = api(f'commits/{base}')
+              commit = api(f'commits/{head}')
+              assert commit['commit']['verification']['verified'] is True
+              comparison = api(f'compare/{base_commit["sha"]}...{commit["sha"]}')
+              assert comparison['status'] == 'ahead' and comparison['behind_by'] == 0
+              files = comparison['files']
+              assert 1 <= len(files) <= 8
+              assert all(file['status'] == 'added' and re.fullmatch(r'[.]pr51-edge/[a-z-]+[.]txt', file['filename']) for file in files)
+              assert api(f'git/ref/heads/{head}')['object']['sha'] == commit['sha']
+              assert api(f'git/ref/heads/{base}')['object']['sha'] == base_commit['sha']
+              existing = api(f'pulls?state=open&head=GrantBirki:{head}&base={base}&per_page=100')
+              assert len(existing) <= 1
+              if existing:
+                  pull = existing[0]
+                  assert pull['user']['login'] == 'github-actions[bot]'
+              else:
+                  pull = api('pulls', 'POST', {'head': head, 'base': base, 'title': 'Stack acceptance: ' + head.removeprefix('pr51-edge-'), 'body': 'Disposable marker-only fixture for exact-SHA branch-deploy acceptance.'})
+              assert pull['head']['sha'] == commit['sha'] and pull['base']['sha'] == base_commit['sha']
+              assert pull['head']['repo']['full_name'] == repo and pull['base']['repo']['full_name'] == repo
+              records.append({'repository': repo, 'number': pull['number'], 'head': head, 'sha': pull['head']['sha'], 'base': base, 'url': pull['html_url']})
+          Path('fixture-prs.json').write_text(json.dumps(records, indent=2) + '\n')
+          print(json.dumps(records))
+          PY
+      - name: Preserve fixture identities
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: pr51-edge-fixtures-${{ github.run_id }}-${{ github.run_attempt }}
+          path: fixture-prs.json
+          if-no-files-found: error
+          retention-days: 7
