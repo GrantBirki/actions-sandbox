@@ -1,1 +1,2 @@
 Public fork acceptance fixture: cross.
+Second fixture revision.
