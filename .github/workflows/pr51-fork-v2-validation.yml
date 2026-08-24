@@ -1,0 +1,545 @@
+name: pr51-fork-v2-validation
+run-name: pr51-fork-v2 PR ${{ github.event.issue.number }} comment ${{ github.event.comment.id }}
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions: {}
+concurrency:
+  group: pr51-fork-v2-validation-${{ github.repository }}
+  cancel-in-progress: false
+
+env:
+  CANDIDATE_SHA: 4dfe380063dcc54b5d2557b1cdb3436d8e10689e
+  WORKFLOW_SHA: ${{ github.workflow_sha }}
+  WORKFLOW_REF: ${{ github.workflow_ref }}
+  FORK_REPOSITORY: birki-sandbox/actions-sandbox
+
+jobs:
+  acceptance:
+    if: ${{ github.event_name == 'issue_comment' && (github.repository == 'GrantBirki/actions-sandbox' || github.repository == 'birki-sandbox/actions-sandbox') && github.actor == 'GrantBirki' && github.triggering_actor == 'GrantBirki' && github.event.comment.user.login == 'GrantBirki' && github.event.issue.pull_request && startsWith(github.event.comment.body, '.pr51-fork-v2') && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      checks: read
+      contents: write
+      deployments: write
+      pull-requests: write
+      statuses: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      PR_NUMBER: ${{ github.event.issue.number }}
+      COMMENT_ID: ${{ github.event.comment.id }}
+      RECEIPT_DIR: pr51-fork-v2-main-receipt
+    outputs:
+      prepared: ${{ steps.snapshot.outputs.prepared }}
+      target: ${{ steps.request.outputs.target }}
+      sticky: ${{ steps.request.outputs.sticky }}
+      expected: ${{ steps.request.outputs.expected }}
+      expected_ref: ${{ steps.snapshot.outputs.expected_ref }}
+      before_deployments: ${{ steps.snapshot.outputs.before_deployments }}
+      before_lock: ${{ steps.snapshot.outputs.before_lock }}
+      other_locks: ${{ steps.snapshot.outputs.other_locks }}
+      flag_mode: ${{ steps.request.outputs.flag_mode }}
+      native_stack: ${{ steps.snapshot.outputs.native_stack }}
+      outcome: ${{ steps.result.outputs.outcome }}
+      operation_result: ${{ steps.result.outputs.operation_result }}
+      reason: ${{ steps.result.outputs.reason_code }}
+      deployment_id: ${{ steps.result.outputs.deployment_id }}
+      sha: ${{ steps.result.outputs.sha }}
+    steps:
+      - name: Select a fixed acceptance mode
+        id: request
+        env:
+          COMMENT_BODY: ${{ github.event.comment.body }}
+        run: |
+          python3 - <<'PY'
+          import json, os, re
+          from pathlib import Path
+          if not re.fullmatch(r'[0-9a-f]{40}', os.environ['CANDIDATE_SHA']):
+              raise SystemExit('The final candidate SHA must be pinned before running acceptance')
+          expected_workflow = os.environ['GITHUB_REPOSITORY'] + '/.github/workflows/pr51-fork-v2-validation.yml@refs/heads/main'
+          if os.environ['WORKFLOW_REF'] != expected_workflow:
+              raise SystemExit('Acceptance must execute the reviewed default-branch workflow')
+          match = re.fullmatch(r'\.pr51-fork-v2-confirm[ \t]+to[ \t]+pr51-fork-v2(?:[ \t]+\|[ \t]+--expect=(ref_changed))?', os.environ['COMMENT_BODY'].strip())
+          if match is None:
+              raise SystemExit('Unsupported pr51-fork-v2 command')
+          values = {
+              'trigger': '.pr51-fork-v2-confirm',
+              'noop_trigger': '.pr51-fork-v2-noop',
+              'flag_mode': 'true',
+              'stacks': 'true',
+              'checks': 'required',
+              'sticky': 'false',
+              'confirm': 'true',
+              'operation': 'deploy',
+              'expected': match[1] or 'deployment_ready',
+              'target': 'pr51-fork-v2',
+              'stable': 'false',
+          }
+          receipt_dir = Path(os.environ['RECEIPT_DIR'])
+          receipt_dir.mkdir(parents=True, exist_ok=True)
+          (receipt_dir / 'request.json').write_text(json.dumps(values, indent=2) + '\n')
+          with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as output:
+              output.writelines(f'{key}={value}\n' for key, value in values.items())
+          PY
+
+      - name: Capture public fixture metadata and protect existing locks
+        id: snapshot
+        env:
+          TARGET: ${{ steps.request.outputs.target }}
+          EXPECTED: ${{ steps.request.outputs.expected }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          repo_owner=${GITHUB_REPOSITORY%%/*}
+          repo_name=${GITHUB_REPOSITORY#*/}
+          repository=$(gh api "repos/$GITHUB_REPOSITORY" --jq '{id,node_id,full_name,private,fork,default_branch,parent:{id:.parent.id,full_name:.parent.full_name},source:{id:.source.id,full_name:.source.full_name}}')
+          jq -e --arg repo "$GITHUB_REPOSITORY" '.full_name == $repo and .private == false and .default_branch == "main"' <<<"$repository" >/dev/null
+          if [[ "$GITHUB_REPOSITORY" == birki-sandbox/actions-sandbox ]]; then
+            jq -e '.id == 1344307397 and .fork == true and .parent.id == 541028848 and .source.id == 541028848 and .parent.full_name == "GrantBirki/actions-sandbox" and .source.full_name == "GrantBirki/actions-sandbox"' <<<"$repository" >/dev/null
+          else
+            [[ "$GITHUB_REPOSITORY" == GrantBirki/actions-sandbox ]]
+            jq -e '.id == 541028848 and .fork == false' <<<"$repository" >/dev/null
+          fi
+          printf '%s\n' "$repository" >"$RECEIPT_DIR/repository.json"
+          pr=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" -H 'X-GitHub-Api-Version: 2022-11-28' --jq '{number,state,merged,draft,author:.user.login,author_id:.user.id,author_type:.user.type,base:{ref:.base.ref,sha:.base.sha,repository:.base.repo.full_name,repository_id:.base.repo.id},head:{ref:.head.ref,sha:.head.sha,repository:.head.repo.full_name,repository_id:.head.repo.id,fork:.head.repo.fork},stack_present:has("stack"),stack}')
+          printf '%s\n' "$pr" >"$RECEIPT_DIR/before-pr.json"
+          head_repository_name=$(jq -r '.head.repository' <<<"$pr")
+          [[ "$head_repository_name" == "$FORK_REPOSITORY" ]]
+          cross_repository=false
+          if [[ "$GITHUB_REPOSITORY" == "$FORK_REPOSITORY" ]]; then
+            head_repository="$repository"
+          else
+            cross_repository=true
+            head_repository=$(gh api "repos/$FORK_REPOSITORY" --jq '{id,node_id,full_name,private,fork,default_branch,parent:{id:.parent.id,full_name:.parent.full_name},source:{id:.source.id,full_name:.source.full_name}}')
+          fi
+          jq -e '.id == 1344307397 and .full_name == "birki-sandbox/actions-sandbox" and .private == false and .fork == true and .parent.id == 541028848 and .source.id == 541028848 and .parent.full_name == "GrantBirki/actions-sandbox" and .source.full_name == "GrantBirki/actions-sandbox"' <<<"$head_repository" >/dev/null
+          printf '%s\n' "$head_repository" >"$RECEIPT_DIR/head-repository.json"
+          jq -e --arg repo "$GITHUB_REPOSITORY" --arg expected "$EXPECTED" --argjson repository "$repository" --argjson head_repository "$head_repository" '
+            .state == "open" and .merged == false and .draft == false and .author == "GrantBirki" and .author_id == 23362539 and .author_type == "User" and
+            .head.repository == $head_repository.full_name and .head.repository_id == $head_repository.id and .head.fork == true and
+            .base.repository == $repo and .base.repository_id == $repository.id and .base.ref == "pr51-fork-v2-trunk" and
+            .stack == null and (.head.sha | test("^[0-9a-f]{40}$")) and
+            (if $repo == "GrantBirki/actions-sandbox" then .head.ref == "pr51-fork-v2-cross" and $expected == "deployment_ready"
+             elif $expected == "ref_changed" then .head.ref == "pr51-fork-v2-join-a"
+             else .head.ref == "pr51-fork-v2-same" end)
+          ' <<<"$pr" >/dev/null
+          native_stack=false
+          stable_branch=pr51-fork-v2-trunk
+          ci_kind=check-run
+          ci_context=pr51-fork-v2-ci
+          gh api "repos/$GITHUB_REPOSITORY/branches/$stable_branch" -H 'X-GitHub-Api-Version: 2022-11-28' --jq '{name,commit:{sha:.commit.sha},protected,protection}' >"$RECEIPT_DIR/stable-branch.json"
+          jq -e --arg branch "$stable_branch" '.name == $branch and (.commit.sha | test("^[0-9a-f]{40}$"))' "$RECEIPT_DIR/stable-branch.json" >/dev/null
+          gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/rules/branches/$stable_branch?per_page=100" | jq '[.[][]]' >"$RECEIPT_DIR/stable-rules.json"
+          expected_sha=$(jq -r '.head.sha' <<<"$pr")
+          expected_ref="$expected_sha"
+          stack=null
+          prefix=$(jq -c '[.number]' <<<"$pr")
+          deploy_ref="$expected_sha"
+          stack_queries=0
+          printf '%s\n' "$stack" >"$RECEIPT_DIR/before-stack.json"
+          printf '%s\n' "$prefix" >"$RECEIPT_DIR/prefix.json"
+          jq -e --argjson selected "$PR_NUMBER" 'length > 0 and length <= 8 and all(.[]; type == "number" and . > 0 and . == floor) and index($selected) != null and length == (unique | length)' <<<"$prefix" >/dev/null
+          : >"$RECEIPT_DIR/before-policy.jsonl"
+          : >"$RECEIPT_DIR/marker-diffs.jsonl"
+          while read -r number; do
+            policy=$(gh api graphql -f query='query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest(number:$number){number state isDraft changedFiles author{__typename login} baseRefName baseRefOid headRefName headRefOid repository{id nameWithOwner isFork} headRepository{id nameWithOwner isFork} reviewDecision mergeStateStatus commits(last:1){nodes{commit{oid tree{oid} statusCheckRollup{state contexts(first:100){pageInfo{hasNextPage}nodes{__typename ... on CheckRun{id databaseId name status conclusion checkSuite{app{databaseId}} isRequired(pullRequestNumber:$number)} ... on StatusContext{id createdAt updatedAt context state isRequired(pullRequestNumber:$number)}}}}}}}}}}' -f owner="$repo_owner" -f name="$repo_name" -F number="$number" --jq '.data.repository.pullRequest')
+            jq -e --argjson number "$number" --argjson repository "$repository" --argjson head_repository "$head_repository" '.number == $number and .state == "OPEN" and (.author.__typename == "User" and .author.login == "GrantBirki") and .repository.id == $repository.node_id and .headRepository.id == $head_repository.node_id and .repository.nameWithOwner == $repository.full_name and .headRepository.nameWithOwner == $head_repository.full_name and .repository.isFork == $repository.fork and .headRepository.isFork == $head_repository.fork and (.headRefName | test("^pr51-fork-v2-[a-z0-9][a-z0-9-]{0,63}$")) and .commits.nodes[0].commit.oid == .headRefOid and (.commits.nodes[0].commit.statusCheckRollup == null or .commits.nodes[0].commit.statusCheckRollup.contexts.pageInfo.hasNextPage == false)' <<<"$policy" >/dev/null
+            reviews=$(gh api --method GET "repos/$GITHUB_REPOSITORY/pulls/$number/reviews" -f per_page=100 --jq '[.[] | {id,node_id,author:.user.login,author_id:.user.id,author_type:.user.type,state,commit_id,submitted_at,html_url,pull_request_url,body}]')
+            jq -e 'length < 100' <<<"$reviews" >/dev/null
+            jq -c --argjson reviews "$reviews" '. + {reviews:$reviews}' <<<"$policy" >>"$RECEIPT_DIR/before-policy.jsonl"
+            base_sha=$(jq -r '.baseRefOid' <<<"$policy")
+            head_sha=$(jq -r '.headRefOid' <<<"$policy")
+            tree_sha=$(jq -r '.commits.nodes[0].commit.tree.oid' <<<"$policy")
+            [[ "$base_sha" =~ ^[0-9a-f]{40}$ && "$head_sha" =~ ^[0-9a-f]{40}$ && "$tree_sha" =~ ^[0-9a-f]{40}$ ]]
+            pull_files=$(gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/pulls/$number/files?per_page=100" | jq '[.[][]|{filename,status,sha,previous_filename}]')
+            jq -e --argjson count "$(jq -r .changedFiles <<<"$policy")" 'length == $count and length <= 16 and all(.[]; (.status == "added" or .status == "modified") and (.filename | test("^\\.pr51-fork-v2/[A-Za-z0-9][A-Za-z0-9._-]*\\.txt$")) and .previous_filename == null)' <<<"$pull_files" >/dev/null
+            comparison=null
+            if [[ "$cross_repository" == false ]]; then
+              comparison=$(gh api "repos/$GITHUB_REPOSITORY/compare/$base_sha...$head_sha" --jq '{status,ahead_by,behind_by,total_commits,base_commit:{sha:.base_commit.sha},merge_base_commit:{sha:.merge_base_commit.sha},files:[.files[]|{filename,status,sha,previous_filename}]}')
+              jq -e --argjson files "$pull_files" '.total_commits >= 0 and .total_commits <= 32 and (.files | sort_by(.filename)) == ($files | sort_by(.filename))' <<<"$comparison" >/dev/null
+            fi
+            tree=$(gh api "repos/$head_repository_name/git/trees/$tree_sha?recursive=1" --jq '{sha,truncated,tree:[.tree[]|{path,mode,type,sha}]}')
+            jq -e --arg tree_sha "$tree_sha" --argjson files "$pull_files" '. as $tree | .sha == $tree_sha and .truncated == false and all($files[]; . as $file | any($tree.tree[]; .path == $file.filename and .mode == "100644" and .type == "blob" and .sha == $file.sha))' <<<"$tree" >/dev/null
+            commit_verification=$(gh api "repos/$head_repository_name/commits/$head_sha" --jq '{sha,verified:.commit.verification.verified,reason:.commit.verification.reason}')
+            jq -e --arg head "$head_sha" '.sha == $head and .verified == true' <<<"$commit_verification" >/dev/null
+            current=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$number" --jq '{base:.base.sha,head:.head.sha,head_repository:.head.repo.full_name}')
+            jq -e --arg base "$base_sha" --arg head "$head_sha" --arg head_repository "$head_repository_name" '.base == $base and .head == $head and .head_repository == $head_repository' <<<"$current" >/dev/null
+            jq -nc --argjson number "$number" --arg base_sha "$base_sha" --arg head_sha "$head_sha" --arg head_repository "$head_repository_name" --arg tree_sha "$tree_sha" --argjson comparison "$comparison" --argjson files "$pull_files" --argjson tree "$tree" --argjson commit_verification "$commit_verification" '{number:$number,base_sha:$base_sha,head_sha:$head_sha,head_repository:$head_repository,tree_sha:$tree_sha,comparison:$comparison,pull_files:$files,commit_verification:$commit_verification,marker_files:[$tree.tree[]|select(.path as $path|any($files[];.filename==$path))]}' >>"$RECEIPT_DIR/marker-diffs.jsonl"
+          done < <(jq -r '.[]' <<<"$prefix")
+          jq -s . "$RECEIPT_DIR/before-policy.jsonl" >"$RECEIPT_DIR/before-policy.json"
+          jq -s . "$RECEIPT_DIR/marker-diffs.jsonl" >"$RECEIPT_DIR/marker-diffs.json"
+          jq -e --arg context "$ci_context" '
+            length == 1 and all(.[]; . as $pr | .state == "OPEN" and .isDraft == false and
+              .reviewDecision == "APPROVED" and
+              ([.reviews[] | select(.author == "github-actions[bot]" and .author_id == 41898282 and .author_type == "Bot")] | max_by(.id) | .state == "APPROVED" and .commit_id == $pr.headRefOid) and
+              .commits.nodes[0].commit.oid == .headRefOid and
+              .commits.nodes[0].commit.statusCheckRollup.contexts.pageInfo.hasNextPage == false and
+              ([.commits.nodes[0].commit.statusCheckRollup.contexts.nodes[] |
+                select(.__typename == "CheckRun" and .name == $context and .checkSuite.app.databaseId == 15368)] |
+                max_by(.databaseId) | .isRequired == true and .status == "COMPLETED" and .conclusion == "SUCCESS"))
+          ' "$RECEIPT_DIR/before-policy.json" >/dev/null
+          gh api "repos/$GITHUB_REPOSITORY/commits/$expected_sha/check-runs?filter=all&per_page=100" | jq '
+            def compact_pr:
+              {id,number,url,head:{ref:.head.ref,sha:.head.sha,repo:{id:.head.repo.id,name:.head.repo.name,full_name:.head.repo.full_name,url:.head.repo.url}},
+               base:{ref:.base.ref,sha:.base.sha,repo:{id:.base.repo.id,name:.base.repo.name,full_name:.base.repo.full_name,url:.base.repo.url}}};
+            {total_count,check_runs:[.check_runs[] |
+              {id,node_id,name,head_sha,status,conclusion,started_at,completed_at,details_url,html_url,app:{id:.app.id,slug:.app.slug},
+               check_suite:(.check_suite | {id} + (if has("pull_requests") then {pull_requests:[.pull_requests[] | compact_pr]} else {} end))} +
+              (if has("pull_requests") then {pull_requests:[.pull_requests[] | compact_pr]} else {} end)]}
+          ' >"$RECEIPT_DIR/before-check-runs.json"
+          jq -e --arg sha "$expected_sha" --arg context "$ci_context" --slurpfile policies "$RECEIPT_DIR/before-policy.json" '
+            ($policies[0][0].commits.nodes[0].commit.statusCheckRollup.contexts.nodes |
+              map(select(.__typename == "CheckRun" and .name == $context and .checkSuite.app.databaseId == 15368)) |
+              max_by(.databaseId)) as $required |
+            .total_count == (.check_runs | length) and .total_count < 100 and
+            any(.check_runs[]; .id == $required.databaseId and .node_id == $required.id and .name == $context and
+              .app.id == 15368 and .head_sha == $sha and .status == "completed" and .conclusion == "success")
+          ' "$RECEIPT_DIR/before-check-runs.json" >/dev/null
+
+          jq -n --arg candidate "$CANDIDATE_SHA" --arg workflow_sha "$WORKFLOW_SHA" --arg workflow_ref "$WORKFLOW_REF" --arg stable_branch "$stable_branch" --arg ci_kind "$ci_kind" --arg ci_context "$ci_context" --argjson fork_hosted "$(jq -r .fork <<<"$repository")" --argjson head_fork "$(jq -r .head.fork <<<"$pr")" --argjson cross_repository "$cross_repository" --argjson native_stack "$native_stack" --argjson stack_queries "$stack_queries" --arg expected_sha "$expected_sha" --arg expected_ref "$expected_ref" --arg deploy_ref "$deploy_ref" '{candidate:$candidate,workflow_sha:$workflow_sha,workflow_ref:$workflow_ref,stable_branch:$stable_branch,ci_kind:$ci_kind,ci_context:$ci_context,fork_hosted:$fork_hosted,head_fork:$head_fork,cross_repository:$cross_repository,native_stack:$native_stack,capture_stack_queries:$stack_queries,expected_sha:$expected_sha,expected_ref:$expected_ref,deploy_ref:$deploy_ref}' >"$RECEIPT_DIR/snapshot.json"
+          {
+            printf 'Candidate: `%s`\n\nWorkflow: `%s`\n\n```json\n' "$CANDIDATE_SHA" "$WORKFLOW_SHA"
+            jq -c . "$RECEIPT_DIR/snapshot.json" "$RECEIPT_DIR/before-pr.json" "$RECEIPT_DIR/before-stack.json" "$RECEIPT_DIR/before-policy.json"
+            printf '```\n'
+          } >>"$GITHUB_STEP_SUMMARY"
+          locks=$(gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/git/matching-refs/heads/" | jq -c '[.[][] | select(.ref | endswith("-branch-deploy-lock")) | {ref,sha:.object.sha}] | sort_by(.ref)')
+          target_ref="refs/heads/$TARGET-branch-deploy-lock"
+          jq -e 'all(.[]; .ref != "refs/heads/global-branch-deploy-lock")' <<<"$locks" >/dev/null
+          printf '%s\n' "$locks" >"$RECEIPT_DIR/before-locks.json"
+          before_lock=$(jq -r --arg ref "$target_ref" '.[] | select(.ref == $ref) | .sha' <<<"$locks")
+          [[ -z "$before_lock" ]]
+          before_deployments=$(gh api --method GET "repos/$GITHUB_REPOSITORY/deployments" -f environment="$TARGET" -f per_page=100 | jq -c '[.[].id]')
+          jq -e 'length < 100' <<<"$before_deployments" >/dev/null
+          printf '%s\n' "$before_deployments" >"$RECEIPT_DIR/before-deployment-ids.json"
+          {
+            printf 'native_stack=%s\nstable_branch=%s\nci_kind=%s\nci_context=%s\n' "$native_stack" "$stable_branch" "$ci_kind" "$ci_context"
+            printf 'expected_sha=%s\nexpected_ref=%s\ndeploy_ref=%s\nbase_ref=%s\n' "$expected_sha" "$expected_ref" "$deploy_ref" "$(jq -r '.base.ref' <<<"$pr")"
+            printf 'before_deployments=%s\nbefore_lock=%s\nother_locks=%s\nprepared=true\n' "$before_deployments" "$before_lock" "$(jq -c --arg ref "$target_ref" 'map(select(.ref != $ref))' <<<"$locks")"
+          } >>"$GITHUB_OUTPUT"
+
+      - name: Run the pinned candidate with native stacks enabled
+        id: candidate_explicit
+        continue-on-error: true
+        uses: GrantBirki/branch-deploy@4dfe380063dcc54b5d2557b1cdb3436d8e10689e
+        with:
+          trigger: ${{ steps.request.outputs.trigger }}
+          noop_trigger: ${{ steps.request.outputs.noop_trigger }}
+          lock_trigger: .pr51-fork-v2-lock
+          unlock_trigger: .pr51-fork-v2-unlock
+          help_trigger: .pr51-fork-v2-help
+          lock_info_alias: .pr51-fork-v2-wcid
+          enable_pr_stacks: 'true'
+          stable_branch: ${{ steps.snapshot.outputs.stable_branch }}
+          environment: pr51-fork-v2
+          environment_targets: pr51-fork-v2
+          production_environments: production
+          admins: 'false'
+          checks: ${{ steps.request.outputs.checks }}
+          commit_verification: true
+          allow_forks: true
+          sticky_locks: ${{ steps.request.outputs.sticky }}
+          deployment_confirmation: ${{ steps.request.outputs.confirm }}
+          deployment_confirmation_timeout: 300
+          update_branch: warn
+          skip_ci: 'false'
+          skip_reviews: 'false'
+
+      - name: Record the selected main result
+        id: result
+        if: ${{ always() && steps.snapshot.outputs.prepared == 'true' }}
+        env:
+          FLAG_MODE: ${{ steps.request.outputs.flag_mode }}
+          CANDIDATE_OUTCOME: ${{ steps.candidate_explicit.outcome }}
+          CANDIDATE_OUTPUTS: ${{ toJSON(steps.candidate_explicit.outputs) }}
+        run: |
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          receipt_dir = Path(os.environ['RECEIPT_DIR'])
+          outcome = os.environ['CANDIDATE_OUTCOME']
+          outputs = json.loads(os.environ['CANDIDATE_OUTPUTS'])
+          assert isinstance(outputs, dict)
+          try:
+              result = json.loads(outputs.get('result', 'null'))
+          except json.JSONDecodeError:
+              result = None
+          request = json.loads((receipt_dir / 'request.json').read_text())
+          snapshot = json.loads((receipt_dir / 'snapshot.json').read_text())
+          receipt = {
+              'kind': 'main',
+              'candidate': os.environ['CANDIDATE_SHA'],
+              'action_ref': 'GrantBirki/branch-deploy@' + os.environ['CANDIDATE_SHA'],
+              'workflow_sha': os.environ['WORKFLOW_SHA'],
+              'workflow_ref': os.environ['WORKFLOW_REF'],
+              'run_id': os.environ['GITHUB_RUN_ID'],
+              'run_attempt': os.environ['GITHUB_RUN_ATTEMPT'],
+              'comment_id': os.environ['COMMENT_ID'],
+              'pull_number': os.environ['PR_NUMBER'],
+              'flag_mode': os.environ['FLAG_MODE'],
+              'main_outcome': outcome,
+              'result': result,
+              'outputs': outputs,
+              'environment': request['target'],
+              'selected_sha': snapshot['expected_sha'],
+              'native_stack': snapshot['native_stack'],
+              'fork_hosted': snapshot['fork_hosted'],
+              'head_fork': snapshot['head_fork'],
+              'cross_repository': snapshot['cross_repository'],
+              'stable_branch': snapshot['stable_branch'],
+              'ci_kind': snapshot['ci_kind'],
+              'ci_context': snapshot['ci_context'],
+              'confirmation_requested': request['confirm'] == 'true',
+              'capture_stack_queries': snapshot['capture_stack_queries'],
+          }
+          (receipt_dir / 'main.json').write_text(json.dumps(receipt, indent=2) + '\n')
+          print('PR51_RECEIPT=' + json.dumps(receipt, separators=(',', ':')))
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              for key in ['decision', 'reason_code', 'continue', 'noop', 'sha', 'ref', 'base_ref', 'deployment_id', 'commit_verified', 'sha_deployment']:
+                  value = outputs.get(key, '')
+                  assert isinstance(value, str) and '\n' not in value and '\r' not in value
+                  output.write(f'{key}={value}\n')
+              output.write(f'outcome={outcome}\n')
+              output.write('operation_result=' + json.dumps(result, separators=(',', ':')) + '\n')
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as summary:
+              summary.write('```json\n' + json.dumps(receipt) + '\n```\n')
+          PY
+
+      - name: Assert the action result
+        id: receipt
+        if: ${{ always() && steps.snapshot.outputs.prepared == 'true' }}
+        env:
+          EXPECTED: ${{ steps.request.outputs.expected }}
+          OPERATION: ${{ steps.request.outputs.operation }}
+          CONFIRM: ${{ steps.request.outputs.confirm }}
+          TARGET: ${{ steps.request.outputs.target }}
+          STABLE_BRANCH: ${{ steps.snapshot.outputs.stable_branch }}
+          CI_KIND: ${{ steps.snapshot.outputs.ci_kind }}
+          CI_CONTEXT: ${{ steps.snapshot.outputs.ci_context }}
+          EXPECTED_SHA: ${{ steps.snapshot.outputs.expected_sha }}
+          EXPECTED_REF: ${{ steps.snapshot.outputs.expected_ref }}
+          DEPLOY_REF: ${{ steps.snapshot.outputs.deploy_ref }}
+          BASE_REF: ${{ steps.snapshot.outputs.base_ref }}
+          BEFORE_DEPLOYMENTS: ${{ steps.snapshot.outputs.before_deployments }}
+          OUTCOME: ${{ steps.result.outputs.outcome }}
+          DECISION: ${{ steps.result.outputs.decision }}
+          REASON: ${{ steps.result.outputs.reason_code }}
+          CONTINUE: ${{ steps.result.outputs.continue }}
+          NOOP: ${{ steps.result.outputs.noop }}
+          SHA: ${{ steps.result.outputs.sha }}
+          REF: ${{ steps.result.outputs.ref }}
+          ACTUAL_BASE_REF: ${{ steps.result.outputs.base_ref }}
+          DEPLOYMENT_ID: ${{ steps.result.outputs.deployment_id }}
+          VERIFIED: ${{ steps.result.outputs.commit_verified }}
+          SHA_DEPLOYMENT: ${{ steps.result.outputs.sha_deployment }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          RESULT=$(jq -r '.outputs.result' "$RECEIPT_DIR/main.json")
+          jq -nc --arg candidate "$CANDIDATE_SHA" --arg outcome "$OUTCOME" --arg expected "$EXPECTED" --argjson result "$RESULT" '{candidate:$candidate,step_outcome:$outcome,expected_reason:$expected,result:$result}' | tee -a "$GITHUB_STEP_SUMMARY"
+          jq -e --arg decision "$DECISION" --arg reason "$REASON" --arg operation "$OPERATION" '.schema_version == 1 and .decision == $decision and .reason_code == $reason and .operation == $operation' <<<"$RESULT" >/dev/null
+          [[ "$REASON" == "$EXPECTED" ]]
+          gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" -H 'X-GitHub-Api-Version: 2022-11-28' --jq '{number,state,merged,draft,author:.user.login,author_id:.user.id,author_type:.user.type,base:{ref:.base.ref,sha:.base.sha,repository:.base.repo.full_name,repository_id:.base.repo.id},head:{ref:.head.ref,sha:.head.sha,repository:.head.repo.full_name,repository_id:.head.repo.id,fork:.head.repo.fork},stack_present:has("stack"),stack}' >"$RECEIPT_DIR/after-main-pr.json"
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          directory = Path(os.environ['RECEIPT_DIR'])
+          before = json.loads((directory / 'before-pr.json').read_text())
+          after = json.loads((directory / 'after-main-pr.json').read_text())
+          assert after['number'] == before['number'] and after['state'] == 'open' and after['merged'] is False
+          assert all(after['head'][key] == before['head'][key] for key in ['ref', 'repository', 'repository_id', 'fork'])
+          assert after['draft'] is False and after['base'] == before['base']
+          assert before['head']['fork'] is True and before['stack'] is None
+          if os.environ['EXPECTED'] == 'deployment_ready':
+              assert after['head']['sha'] != before['head']['sha'] and after['stack'] is None
+          else:
+              assert os.environ['GITHUB_REPOSITORY'] == 'birki-sandbox/actions-sandbox'
+              assert after['head']['sha'] == before['head']['sha']
+              assert after['stack']['position'] == 1 and after['stack']['size'] == 2
+              assert after['stack']['base']['ref'] == 'pr51-fork-v2-trunk'
+          PY
+          [[ "$SHA" == "$EXPECTED_SHA" && "$REF" == "$EXPECTED_REF" && "$ACTUAL_BASE_REF" == "$BASE_REF" && "$VERIFIED" == true && -z "$SHA_DEPLOYMENT" ]]
+          jq -e --arg repository "$FORK_REPOSITORY" --slurpfile before "$RECEIPT_DIR/before-pr.json" '.outputs.fork == "true" and .outputs.fork_full_name == $repository and .outputs.fork_ref == $before[0].head.ref and .outputs.ref == $before[0].head.sha' "$RECEIPT_DIR/main.json" >/dev/null
+          jq -e --arg sha "$SHA" --arg ref "$REF" --arg target "$TARGET" '.sha == $sha and .ref == $ref and .environment == $target and .deployment_type == "branch"' <<<"$RESULT" >/dev/null
+          if [[ "$EXPECTED" == deployment_ready ]]; then
+            [[ "$OUTCOME" == success && "$DECISION" == continue && "$CONTINUE" == true && "$NOOP" == false ]]
+            [[ "$DEPLOYMENT_ID" =~ ^[0-9]+$ ]]
+            jq -e --argjson id "$DEPLOYMENT_ID" '.deployment_id == $id' <<<"$RESULT" >/dev/null
+            gh api "repos/$GITHUB_REPOSITORY/deployments/$DEPLOYMENT_ID" | tee "$RECEIPT_DIR/deployment.json" | jq -e --arg sha "$SHA" --arg ref "$DEPLOY_REF" --arg target "$TARGET" --arg run_id "$GITHUB_RUN_ID" '.sha == $sha and .ref == $ref and .environment == $target and .payload.type == "branch-deploy" and .payload.sha == $sha and (.payload.github_run_id | tostring) == $run_id' >/dev/null
+          else
+            [[ "$EXPECTED" == ref_changed && "$OUTCOME" == failure && "$DECISION" == failure && "$CONTINUE" != true && -z "$DEPLOYMENT_ID" ]]
+            jq -e '.deployment_id == null' <<<"$RESULT" >/dev/null
+            gh api --method GET "repos/$GITHUB_REPOSITORY/deployments" -f environment="$TARGET" -f per_page=100 | jq -e --argjson before "$BEFORE_DEPLOYMENTS" '([.[].id] | sort) == ($before | sort)' >/dev/null
+          fi
+
+      - name: Check out only the checked commit
+        if: ${{ steps.receipt.outcome == 'success' && steps.result.outputs.continue == 'true' }}
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          repository: birki-sandbox/actions-sandbox
+          ref: ${{ steps.result.outputs.sha }}
+          path: checked-commit
+          persist-credentials: false
+          sparse-checkout: /.pr51-fork-v2/
+          sparse-checkout-cone-mode: false
+
+      - name: Assert checkout identity without running PR code
+        if: ${{ steps.receipt.outcome == 'success' && steps.result.outputs.continue == 'true' }}
+        env:
+          EXPECTED_SHA: ${{ steps.snapshot.outputs.expected_sha }}
+        run: |
+          set -euo pipefail
+          actual=$(git -C checked-commit rev-parse HEAD)
+          [[ "$actual" == "$EXPECTED_SHA" ]]
+          CHECKOUT_SHA="$actual" python3 - <<'PY'
+          import hashlib, json, os, re
+          from pathlib import Path
+          checkout = Path('checked-commit')
+          files = []
+          for directory, names, filenames in os.walk(checkout, followlinks=False):
+              names[:] = [name for name in names if not (Path(directory) == checkout and name == '.git')]
+              for name in names:
+                  path = Path(directory) / name
+                  if path.is_symlink() or path.relative_to(checkout).as_posix() != '.pr51-fork-v2':
+                      raise SystemExit('Unexpected checkout directory')
+              for name in filenames:
+                  path = Path(directory) / name
+                  relative = path.relative_to(checkout).as_posix()
+                  if path.is_symlink() or not re.fullmatch(r'\.pr51-fork-v2/[A-Za-z0-9][A-Za-z0-9._-]*\.txt', relative):
+                      raise SystemExit('Unexpected non-marker checkout file')
+                  files.append({'path': relative, 'sha256': hashlib.sha256(path.read_bytes()).hexdigest()})
+          receipt = {'candidate': os.environ['CANDIDATE_SHA'], 'repository': os.environ['FORK_REPOSITORY'],
+                     'expected_sha': os.environ['EXPECTED_SHA'], 'checkout_sha': os.environ['CHECKOUT_SHA'],
+                     'marker_files': sorted(files, key=lambda item: item['path'])}
+          (Path(os.environ['RECEIPT_DIR']) / 'checkout.json').write_text(json.dumps(receipt, indent=2) + '\n')
+          PY
+          printf '\nChecked out: `%s`\n' "$actual" >>"$GITHUB_STEP_SUMMARY"
+
+      - name: Preserve the main and checkout receipts
+        if: ${{ always() && steps.request.outcome == 'success' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # pin@v7.0.1
+        with:
+          name: pr51-fork-v2-main-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ env.RECEIPT_DIR }}/
+          if-no-files-found: error
+          retention-days: 7
+
+  verify-post:
+    needs: acceptance
+    if: ${{ always() && needs.acceptance.outputs.prepared == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      deployments: read
+      pull-requests: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      PR_NUMBER: ${{ github.event.issue.number }}
+      TARGET: ${{ needs.acceptance.outputs.target }}
+      STICKY: ${{ needs.acceptance.outputs.sticky }}
+      EXPECTED_REF: ${{ needs.acceptance.outputs.expected_ref }}
+      BEFORE_DEPLOYMENTS: ${{ needs.acceptance.outputs.before_deployments }}
+      BEFORE_LOCK: ${{ needs.acceptance.outputs.before_lock }}
+      OTHER_LOCKS: ${{ needs.acceptance.outputs.other_locks }}
+      REASON: ${{ needs.acceptance.outputs.reason }}
+      DEPLOYMENT_ID: ${{ needs.acceptance.outputs.deployment_id }}
+      SHA: ${{ needs.acceptance.outputs.sha }}
+      ACCEPTANCE_RESULT: ${{ needs.acceptance.result }}
+      MAIN_OUTCOME: ${{ needs.acceptance.outputs.outcome }}
+      OPERATION_RESULT: ${{ needs.acceptance.outputs.operation_result }}
+      FLAG_MODE: ${{ needs.acceptance.outputs.flag_mode }}
+      NATIVE_STACK: ${{ needs.acceptance.outputs.native_stack }}
+      COMMENT_ID: ${{ github.event.comment.id }}
+      RECEIPT_DIR: pr51-fork-v2-post-receipt
+    steps:
+      - name: Verify post completion and unrelated locks
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RECEIPT_DIR"
+          locks=$(gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/git/matching-refs/heads/" | jq -c '[.[][] | select(.ref | endswith("-branch-deploy-lock")) | {ref,sha:.object.sha}] | sort_by(.ref)')
+          printf '%s\n' "$locks" >"$RECEIPT_DIR/after-locks.json"
+          gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" -H 'X-GitHub-Api-Version: 2022-11-28' --jq '{number,state,merged,draft,author:.user.login,author_id:.user.id,author_type:.user.type,base:{ref:.base.ref,sha:.base.sha,repository:.base.repo.full_name,repository_id:.base.repo.id},head:{ref:.head.ref,sha:.head.sha,repository:.head.repo.full_name,repository_id:.head.repo.id,fork:.head.repo.fork},stack_present:has("stack"),stack}' >"$RECEIPT_DIR/after-pr.json"
+          after_stack=null
+          if [[ $(jq -r '.stack != null' "$RECEIPT_DIR/after-pr.json") == true ]]; then
+            [[ "$GITHUB_REPOSITORY" == birki-sandbox/actions-sandbox && "$REASON" == ref_changed ]]
+            repo_owner=${GITHUB_REPOSITORY%%/*}
+            repo_name=${GITHUB_REPOSITORY#*/}
+            after_stack=$(gh api graphql -f query='query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest(number:$number){number headRefOid stackEntry{position} stack{id number size baseRefName entries(first:100){totalCount pageInfo{hasNextPage}nodes{position pullRequest{number state baseRefName baseRefOid headRefName headRefOid mergeCommit{oid}}}}}}}}' -f owner="$repo_owner" -f name="$repo_name" -F number="$PR_NUMBER" --jq '.data.repository.pullRequest')
+            jq -e --slurpfile recorded "$RECEIPT_DIR/after-pr.json" '.stack != null and .number == $recorded[0].number and .headRefOid == $recorded[0].head.sha and .stack.number == $recorded[0].stack.number and .stackEntry.position == $recorded[0].stack.position and .stack.baseRefName == $recorded[0].stack.base.ref and .stack.entries.pageInfo.hasNextPage == false and .stack.entries.totalCount == (.stack.entries.nodes | length)' <<<"$after_stack" >/dev/null
+          fi
+          printf '%s\n' "$after_stack" >"$RECEIPT_DIR/after-stack.json"
+          gh api --method GET "repos/$GITHUB_REPOSITORY/deployments" -f environment="$TARGET" -f per_page=100 --jq '[.[].id]' >"$RECEIPT_DIR/after-deployment-ids.json"
+          jq -e 'length < 100' "$RECEIPT_DIR/after-deployment-ids.json" >/dev/null
+          target_ref="refs/heads/$TARGET-branch-deploy-lock"
+          [[ $(jq -c --arg ref "$target_ref" 'map(select(.ref != $ref))' <<<"$locks") == "$OTHER_LOCKS" ]]
+          current_lock=$(jq -r --arg ref "$target_ref" '.[] | select(.ref == $ref) | .sha' <<<"$locks")
+          if [[ "$REASON" == deployment_ready ]]; then
+            gh api "repos/$GITHUB_REPOSITORY/deployments/$DEPLOYMENT_ID/statuses" >"$RECEIPT_DIR/deployment-statuses.json"
+            state=$(jq -r '.[0].state' "$RECEIPT_DIR/deployment-statuses.json")
+            if [[ "$ACCEPTANCE_RESULT" == success ]]; then
+              [[ "$state" == success ]]
+            else
+              [[ "$state" == failure || "$state" == error ]]
+            fi
+            printf 'Deployment `%s` at `%s`: `%s`\n' "$DEPLOYMENT_ID" "$SHA" "$state" >>"$GITHUB_STEP_SUMMARY"
+          else
+            jq -e --argjson before "$BEFORE_DEPLOYMENTS" 'sort == ($before | sort)' "$RECEIPT_DIR/after-deployment-ids.json" >/dev/null
+          fi
+          if [[ "$REASON" == deployment_ready ]]; then
+            jq -e --argjson before "$BEFORE_DEPLOYMENTS" --argjson deployment "$DEPLOYMENT_ID" '. as $after | (. - $before) == [$deployment] and all($before[]; . as $id | $after | index($id))' "$RECEIPT_DIR/after-deployment-ids.json" >/dev/null
+          fi
+          [[ -z "$current_lock" && -z "$BEFORE_LOCK" ]]
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          receipt_dir = Path(os.environ['RECEIPT_DIR'])
+          locks = json.loads((receipt_dir / 'after-locks.json').read_text())
+          target_ref = 'refs/heads/' + os.environ['TARGET'] + '-branch-deploy-lock'
+          current_lock = next((lock['sha'] for lock in locks if lock['ref'] == target_ref), None)
+          statuses_path = receipt_dir / 'deployment-statuses.json'
+          statuses = json.loads(statuses_path.read_text()) if statuses_path.exists() else []
+          receipt = {
+              'kind': 'post',
+              'candidate': os.environ['CANDIDATE_SHA'],
+              'action_ref': 'GrantBirki/branch-deploy@' + os.environ['CANDIDATE_SHA'],
+              'workflow_sha': os.environ['WORKFLOW_SHA'],
+              'run_id': os.environ['GITHUB_RUN_ID'],
+              'run_attempt': os.environ['GITHUB_RUN_ATTEMPT'],
+              'comment_id': os.environ['COMMENT_ID'],
+              'pull_number': os.environ['PR_NUMBER'],
+              'flag_mode': os.environ['FLAG_MODE'],
+              'native_stack_before': os.environ['NATIVE_STACK'] == 'true',
+              'acceptance_result': os.environ['ACCEPTANCE_RESULT'],
+              'main_outcome': os.environ['MAIN_OUTCOME'],
+              'result': json.loads(os.environ['OPERATION_RESULT']),
+              'reason_code': os.environ['REASON'],
+              'deployment_id': os.environ['DEPLOYMENT_ID'],
+              'selected_sha': os.environ['SHA'],
+              'environment': os.environ['TARGET'],
+              'deployment_state': statuses[0]['state'] if statuses else None,
+              'lock_checks': {
+                  'unrelated_unchanged': True,
+                  'target_policy_verified': True,
+                  'target_before': os.environ['BEFORE_LOCK'] or None,
+                  'target_after': current_lock,
+              },
+          }
+          (receipt_dir / 'post.json').write_text(json.dumps(receipt, indent=2) + '\n')
+          print('PR51_RECEIPT=' + json.dumps(receipt, separators=(',', ':')))
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as summary:
+              summary.write('```json\n' + json.dumps(receipt) + '\n```\n')
+          PY
+          printf '\nUnrelated deployment locks are unchanged.\n' >>"$GITHUB_STEP_SUMMARY"
+
+      - name: Preserve the post receipts
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # pin@v7.0.1
+        with:
+          name: pr51-fork-v2-post-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ env.RECEIPT_DIR }}/
+          if-no-files-found: error
+          retention-days: 7
