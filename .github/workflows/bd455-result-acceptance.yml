@@ -1,0 +1,224 @@
+name: Result mode acceptance
+run-name: Result mode acceptance for PR ${{ github.event.issue.number }}
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions: {}
+
+jobs:
+  seed-disabled-lock:
+    if: >-
+      ${{ github.event.issue.pull_request &&
+          github.event.comment.user.login == 'GrantBirki' &&
+          github.event.comment.body == '.bd455-lock bd455-disabled' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: GrantBirki/branch-deploy@5bbc408085344b9f71ca9ae9d66b7669d97897e7
+        with:
+          trigger: .bd455-deploy
+          noop_trigger: .bd455-noop
+          lock_trigger: .bd455-lock
+          environment: bd455-disabled
+          environment_targets: bd455-disabled
+          sticky_locks: true
+          admins: GrantBirki
+
+  select:
+    if: >-
+      ${{ github.event.issue.pull_request &&
+          github.event.comment.user.login == 'GrantBirki' &&
+          !startsWith(github.event.comment.body, '.bd455-lock') &&
+          startsWith(github.event.comment.body, '.bd455-') }}
+    runs-on: ubuntu-latest
+    outputs:
+      scenario: ${{ steps.select.outputs.scenario }}
+      environment: ${{ steps.select.outputs.environment }}
+      control: ${{ steps.select.outputs.control }}
+    steps:
+      - id: select
+        env:
+          COMMENT_BODY: ${{ github.event.comment.body }}
+        run: |
+          node --input-type=module <<'NODE'
+          import {appendFileSync} from 'node:fs'
+          const cases = new Map([
+            ['control-success', 'deploy'], ['control-failure', 'deploy'],
+            ['control-noop', 'noop'], ['control-false', 'deploy'],
+            ['success', 'deploy'], ['noop-failure', 'noop'],
+            ['failure', 'deploy'], ['skipped', 'deploy'],
+            ['cancelled', 'deploy'], ['noop', 'noop'],
+            ['sticky', 'deploy'], ['replacement', 'deploy'],
+            ['disabled', 'deploy'], ['missing', 'deploy'],
+            ['fork', 'deploy'], ['reusable', 'deploy'],
+            ['later-attempt', 'deploy'], ['settings-inherit', 'deploy'],
+            ['settings-replace', 'deploy'], ['head-moved', 'deploy']
+          ])
+          const match = /^\.bd455-(deploy|noop) to (bd455-([a-z-]+))$/.exec(process.env.COMMENT_BODY.trim())
+          if (match === null || cases.get(match[3]) !== match[1]) {
+            throw new Error('Use an exact command from the acceptance matrix')
+          }
+          appendFileSync(process.env.GITHUB_OUTPUT, [
+            `scenario=${match[3]}`, `environment=${match[2]}`,
+            `control=${match[3].startsWith('control-')}`, ''
+          ].join('\n'))
+          NODE
+
+  ordinary:
+    needs: select
+    if: ${{ needs.select.outputs.control == 'true' && needs.select.outputs.scenario != 'control-false' }}
+    runs-on: ubuntu-latest
+    permissions:
+      checks: read
+      contents: write
+      deployments: write
+      pull-requests: write
+      statuses: read
+    steps:
+      - uses: GrantBirki/branch-deploy@5bbc408085344b9f71ca9ae9d66b7669d97897e7
+        id: gate
+        with:
+          trigger: .bd455-deploy
+          noop_trigger: .bd455-noop
+          environment: ${{ needs.select.outputs.environment }}
+          environment_targets: ${{ needs.select.outputs.environment }}
+          commit_verification: true
+          admins: GrantBirki
+      - name: Ordinary noop
+        if: ${{ steps.gate.outputs.continue == 'true' && steps.gate.outputs.noop == 'true' }}
+        run: echo 'Harmless ordinary noop validation'
+      - name: Ordinary deployment
+        if: ${{ steps.gate.outputs.continue == 'true' && steps.gate.outputs.noop != 'true' }}
+        run: echo 'Harmless ordinary deployment work'
+      - name: Ordinary failure
+        if: ${{ steps.gate.outputs.continue == 'true' && needs.select.outputs.scenario == 'control-failure' }}
+        run: exit 1
+
+  ordinary-explicit-false:
+    needs: select
+    if: ${{ needs.select.outputs.scenario == 'control-false' }}
+    runs-on: ubuntu-latest
+    permissions:
+      checks: read
+      contents: write
+      deployments: write
+      pull-requests: write
+      statuses: read
+    steps:
+      - uses: GrantBirki/branch-deploy@5bbc408085344b9f71ca9ae9d66b7669d97897e7
+        id: gate
+        with:
+          result_mode: false
+          trigger: .bd455-deploy
+          noop_trigger: .bd455-noop
+          environment: ${{ needs.select.outputs.environment }}
+          environment_targets: ${{ needs.select.outputs.environment }}
+          commit_verification: true
+          admins: GrantBirki
+      - name: Ordinary deployment with explicit false
+        if: ${{ steps.gate.outputs.continue == 'true' && steps.gate.outputs.noop != 'true' }}
+        run: echo 'Harmless ordinary work with result_mode explicitly false'
+
+  start:
+    needs: select
+    if: ${{ needs.select.outputs.control != 'true' }}
+    runs-on: ubuntu-latest
+    permissions:
+      checks: read
+      contents: write
+      deployments: write
+      pull-requests: write
+      statuses: read
+    outputs:
+      continue: ${{ steps.gate.outputs.continue }}
+      noop: ${{ steps.gate.outputs.noop }}
+      sha: ${{ steps.gate.outputs.sha }}
+      context: ${{ steps.gate.outputs.context }}
+    steps:
+      - uses: GrantBirki/branch-deploy@5bbc408085344b9f71ca9ae9d66b7669d97897e7
+        id: gate
+        with:
+          trigger: .bd455-deploy
+          noop_trigger: .bd455-noop
+          environment: ${{ needs.select.outputs.environment }}
+          environment_targets: ${{ needs.select.outputs.environment }}
+          commit_verification: true
+          admins: GrantBirki
+          allow_forks: ${{ needs.select.outputs.scenario == 'fork' }}
+          skip_completing: true
+          sticky_locks: ${{ needs.select.outputs.scenario == 'sticky' }}
+          disable_lock: ${{ needs.select.outputs.scenario == 'disabled' }}
+          deploy_message_path: ${{ startsWith(needs.select.outputs.scenario, 'settings-') && '.github/bd455-result-message.md' || '.github/deployment_message.md' }}
+          environment_urls: ${{ startsWith(needs.select.outputs.scenario, 'settings-') && format('{0}|https://example.com/bd455/start/{1}', needs.select.outputs.environment, needs.select.outputs.scenario) || '' }}
+          environment_url_in_comment: ${{ needs.select.outputs.scenario != 'settings-replace' }}
+          successful_deploy_labels: ${{ needs.select.outputs.scenario == 'settings-inherit' && 'bd455-inherited-success' || needs.select.outputs.scenario == 'settings-replace' && 'bd455-replaced-success' || '' }}
+          failed_deploy_labels: ${{ needs.select.outputs.scenario == 'settings-inherit' && 'bd455-inherited-failure' || needs.select.outputs.scenario == 'settings-replace' && 'bd455-replaced-failure' || '' }}
+
+  work:
+    needs: [select, start]
+    if: >-
+      ${{ needs.start.outputs.continue == 'true' &&
+          needs.select.outputs.scenario != 'skipped' &&
+          fromJSON(needs.start.outputs.context).run_attempt == github.run_attempt }}
+    permissions:
+      contents: write
+      pull-requests: read
+    uses: ./.github/workflows/bd455-result-work.yml
+    with:
+      scenario: ${{ needs.select.outputs.scenario }}
+      context: ${{ needs.start.outputs.context }}
+      noop: ${{ needs.start.outputs.noop == 'true' }}
+
+  result:
+    needs: [select, start, work]
+    if: >-
+      ${{ always() && needs.start.outputs.continue == 'true' &&
+          needs.select.outputs.scenario != 'reusable' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      deployments: write
+      pull-requests: write
+    steps:
+      - name: Complete with inherited settings
+        uses: GrantBirki/branch-deploy@5bbc408085344b9f71ca9ae9d66b7669d97897e7
+        if: ${{ always() && needs.select.outputs.scenario != 'settings-replace' }}
+        env:
+          DEPLOY_MESSAGE: ${{ needs.select.outputs.scenario == 'settings-inherit' && 'BD455_INHERITED_DEPLOY_MESSAGE' || '' }}
+        with:
+          result_mode: true
+          context: ${{ needs.start.outputs.context }}
+          job_results: ${{ toJSON(needs.*.result) }}
+          result_url: ${{ needs.select.outputs.scenario != 'settings-inherit' && 'https://example.com/branch-deploy-acceptance' || '' }}
+          environment_urls: ${{ needs.select.outputs.scenario == 'settings-inherit' && 'bd455-settings-inherit|https://example.com/bd455/receiver-ignored' || '' }}
+          environment_url_in_comment: ${{ needs.select.outputs.scenario == 'settings-inherit' && 'not-a-boolean' || 'true' }}
+          skip_completing: ${{ needs.select.outputs.scenario == 'settings-inherit' && 'not-a-boolean' || 'false' }}
+      - name: Complete with replacement defaults
+        uses: GrantBirki/branch-deploy@5bbc408085344b9f71ca9ae9d66b7669d97897e7
+        if: ${{ always() && needs.select.outputs.scenario == 'settings-replace' }}
+        env:
+          DEPLOY_MESSAGE: BD455_REPLACEMENT_DEPLOY_MESSAGE
+        with:
+          result_mode: true
+          result_inherit_settings: false
+          context: ${{ needs.start.outputs.context }}
+          job_results: ${{ toJSON(needs.*.result) }}
+          environment_urls: bd455-settings-replace|https://example.com/bd455/replacement
+
+  reusable-result:
+    needs: [select, start, work]
+    if: >-
+      ${{ always() && needs.start.outputs.continue == 'true' &&
+          needs.select.outputs.scenario == 'reusable' }}
+    permissions:
+      contents: write
+      deployments: write
+      pull-requests: write
+    uses: ./.github/workflows/bd455-result-finalize.yml
+    with:
+      context: ${{ needs.start.outputs.context }}
+      job_results: ${{ toJSON(needs.*.result) }}
