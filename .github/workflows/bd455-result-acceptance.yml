@@ -187,6 +187,8 @@ jobs:
           commit_verification: true
           admins: GrantBirki
           allow_forks: ${{ github.repository == 'birki-sandbox/actions-sandbox' || needs.select.outputs.scenario == 'fork' }}
+          checks: ${{ needs.select.outputs.scenario == 'fork' && 'test1' || 'all' }}
+          required_contexts: ${{ needs.select.outputs.scenario == 'fork' && 'test1' || 'false' }}
           skip_completing: true
           sticky_locks: ${{ needs.select.outputs.scenario == 'sticky' }}
           disable_lock: ${{ needs.select.outputs.scenario == 'disabled' }}
