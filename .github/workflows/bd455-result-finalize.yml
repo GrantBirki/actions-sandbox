@@ -22,9 +22,25 @@ jobs:
       pull-requests: write
     steps:
       - uses: GrantBirki/branch-deploy@5bbc408085344b9f71ca9ae9d66b7669d97897e7
+        id: complete
         if: ${{ always() }}
         with:
           result_mode: true
           context: ${{ inputs.context }}
           job_results: ${{ inputs.job_results }}
           result_url: https://example.com/branch-deploy-acceptance
+      - name: Audit selected result outputs
+        if: ${{ always() }}
+        env:
+          BD_AUDIT_DEPLOYMENT_RESULT: ${{ steps.complete.outputs.deployment_result }}
+          BD_AUDIT_DECISION: ${{ steps.complete.outputs.decision }}
+          BD_AUDIT_REASON_CODE: ${{ steps.complete.outputs.reason_code }}
+          BD_AUDIT_RESULT: ${{ steps.complete.outputs.result }}
+        run: |
+          node --input-type=module <<'NODE'
+          const result = process.env.BD_AUDIT_RESULT === '' ? null : JSON.parse(process.env.BD_AUDIT_RESULT)
+          console.log('BD455_OUTPUTS ' + JSON.stringify({
+            phase: 'result', deployment_result: process.env.BD_AUDIT_DEPLOYMENT_RESULT,
+            decision: process.env.BD_AUDIT_DECISION, reason_code: process.env.BD_AUDIT_REASON_CODE, result
+          }))
+          NODE

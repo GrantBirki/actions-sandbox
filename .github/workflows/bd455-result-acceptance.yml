@@ -1,5 +1,5 @@
 name: Result mode acceptance
-run-name: Result mode acceptance for PR ${{ github.event.issue.number }}
+run-name: Result mode acceptance for PR ${{ github.event.issue.number }} / comment ${{ github.event.comment.id }}
 
 on:
   issue_comment:
@@ -88,6 +88,25 @@ jobs:
           environment_targets: ${{ needs.select.outputs.environment }}
           commit_verification: true
           admins: GrantBirki
+          allow_forks: ${{ github.repository == 'birki-sandbox/actions-sandbox' }}
+      - name: Audit selected admission outputs
+        if: ${{ always() }}
+        env:
+          BD_AUDIT_CONTINUE: ${{ steps.gate.outputs.continue }}
+          BD_AUDIT_SHA: ${{ steps.gate.outputs.sha }}
+          BD_AUDIT_NOOP: ${{ steps.gate.outputs.noop }}
+          BD_AUDIT_DEPLOYMENT_ID: ${{ steps.gate.outputs.deployment_id }}
+          BD_AUDIT_INITIAL_COMMENT_ID: ${{ steps.gate.outputs.initial_comment_id }}
+          BD_AUDIT_DECISION: ${{ steps.gate.outputs.decision }}
+          BD_AUDIT_REASON_CODE: ${{ steps.gate.outputs.reason_code }}
+          BD_AUDIT_LOCK_REF_SHA: ${{ steps.gate.outputs.context != '' && fromJSON(steps.gate.outputs.context).lock_ref_sha || '' }}
+          BD_AUDIT_RUN_ATTEMPT: ${{ steps.gate.outputs.context != '' && fromJSON(steps.gate.outputs.context).run_attempt || '' }}
+        run: |
+          node --input-type=module <<'NODE'
+          const keys = ['continue', 'sha', 'noop', 'deployment_id', 'initial_comment_id', 'decision', 'reason_code', 'lock_ref_sha', 'run_attempt']
+          const outputs = Object.fromEntries(keys.map(key => [key, process.env[`BD_AUDIT_${key.toUpperCase()}`] ?? '']))
+          console.log('BD455_OUTPUTS ' + JSON.stringify({phase: 'ordinary', ...outputs}))
+          NODE
       - name: Ordinary noop
         if: ${{ steps.gate.outputs.continue == 'true' && steps.gate.outputs.noop == 'true' }}
         run: echo 'Harmless ordinary noop validation'
@@ -119,6 +138,25 @@ jobs:
           environment_targets: ${{ needs.select.outputs.environment }}
           commit_verification: true
           admins: GrantBirki
+          allow_forks: ${{ github.repository == 'birki-sandbox/actions-sandbox' }}
+      - name: Audit selected admission outputs
+        if: ${{ always() }}
+        env:
+          BD_AUDIT_CONTINUE: ${{ steps.gate.outputs.continue }}
+          BD_AUDIT_SHA: ${{ steps.gate.outputs.sha }}
+          BD_AUDIT_NOOP: ${{ steps.gate.outputs.noop }}
+          BD_AUDIT_DEPLOYMENT_ID: ${{ steps.gate.outputs.deployment_id }}
+          BD_AUDIT_INITIAL_COMMENT_ID: ${{ steps.gate.outputs.initial_comment_id }}
+          BD_AUDIT_DECISION: ${{ steps.gate.outputs.decision }}
+          BD_AUDIT_REASON_CODE: ${{ steps.gate.outputs.reason_code }}
+          BD_AUDIT_LOCK_REF_SHA: ${{ steps.gate.outputs.context != '' && fromJSON(steps.gate.outputs.context).lock_ref_sha || '' }}
+          BD_AUDIT_RUN_ATTEMPT: ${{ steps.gate.outputs.context != '' && fromJSON(steps.gate.outputs.context).run_attempt || '' }}
+        run: |
+          node --input-type=module <<'NODE'
+          const keys = ['continue', 'sha', 'noop', 'deployment_id', 'initial_comment_id', 'decision', 'reason_code', 'lock_ref_sha', 'run_attempt']
+          const outputs = Object.fromEntries(keys.map(key => [key, process.env[`BD_AUDIT_${key.toUpperCase()}`] ?? '']))
+          console.log('BD455_OUTPUTS ' + JSON.stringify({phase: 'ordinary', ...outputs}))
+          NODE
       - name: Ordinary deployment with explicit false
         if: ${{ steps.gate.outputs.continue == 'true' && steps.gate.outputs.noop != 'true' }}
         run: echo 'Harmless ordinary work with result_mode explicitly false'
@@ -148,7 +186,7 @@ jobs:
           environment_targets: ${{ needs.select.outputs.environment }}
           commit_verification: true
           admins: GrantBirki
-          allow_forks: ${{ needs.select.outputs.scenario == 'fork' }}
+          allow_forks: ${{ github.repository == 'birki-sandbox/actions-sandbox' || needs.select.outputs.scenario == 'fork' }}
           skip_completing: true
           sticky_locks: ${{ needs.select.outputs.scenario == 'sticky' }}
           disable_lock: ${{ needs.select.outputs.scenario == 'disabled' }}
@@ -157,6 +195,24 @@ jobs:
           environment_url_in_comment: ${{ needs.select.outputs.scenario != 'settings-replace' }}
           successful_deploy_labels: ${{ needs.select.outputs.scenario == 'settings-inherit' && 'bd455-inherited-success' || needs.select.outputs.scenario == 'settings-replace' && 'bd455-replaced-success' || '' }}
           failed_deploy_labels: ${{ needs.select.outputs.scenario == 'settings-inherit' && 'bd455-inherited-failure' || needs.select.outputs.scenario == 'settings-replace' && 'bd455-replaced-failure' || '' }}
+      - name: Audit selected admission outputs
+        if: ${{ always() }}
+        env:
+          BD_AUDIT_CONTINUE: ${{ steps.gate.outputs.continue }}
+          BD_AUDIT_SHA: ${{ steps.gate.outputs.sha }}
+          BD_AUDIT_NOOP: ${{ steps.gate.outputs.noop }}
+          BD_AUDIT_DEPLOYMENT_ID: ${{ steps.gate.outputs.deployment_id }}
+          BD_AUDIT_INITIAL_COMMENT_ID: ${{ steps.gate.outputs.initial_comment_id }}
+          BD_AUDIT_DECISION: ${{ steps.gate.outputs.decision }}
+          BD_AUDIT_REASON_CODE: ${{ steps.gate.outputs.reason_code }}
+          BD_AUDIT_LOCK_REF_SHA: ${{ steps.gate.outputs.context != '' && fromJSON(steps.gate.outputs.context).lock_ref_sha || '' }}
+          BD_AUDIT_RUN_ATTEMPT: ${{ steps.gate.outputs.context != '' && fromJSON(steps.gate.outputs.context).run_attempt || '' }}
+        run: |
+          node --input-type=module <<'NODE'
+          const keys = ['continue', 'sha', 'noop', 'deployment_id', 'initial_comment_id', 'decision', 'reason_code', 'lock_ref_sha', 'run_attempt']
+          const outputs = Object.fromEntries(keys.map(key => [key, process.env[`BD_AUDIT_${key.toUpperCase()}`] ?? '']))
+          console.log('BD455_OUTPUTS ' + JSON.stringify({phase: 'start', ...outputs}))
+          NODE
 
   work:
     needs: [select, start]
@@ -186,6 +242,7 @@ jobs:
     steps:
       - name: Complete with inherited settings
         uses: GrantBirki/branch-deploy@5bbc408085344b9f71ca9ae9d66b7669d97897e7
+        id: complete
         if: ${{ always() && needs.select.outputs.scenario != 'settings-replace' }}
         env:
           DEPLOY_MESSAGE: ${{ needs.select.outputs.scenario == 'settings-inherit' && 'BD455_INHERITED_DEPLOY_MESSAGE' || '' }}
@@ -199,6 +256,7 @@ jobs:
           skip_completing: ${{ needs.select.outputs.scenario == 'settings-inherit' && 'not-a-boolean' || 'false' }}
       - name: Complete with replacement defaults
         uses: GrantBirki/branch-deploy@5bbc408085344b9f71ca9ae9d66b7669d97897e7
+        id: replace
         if: ${{ always() && needs.select.outputs.scenario == 'settings-replace' }}
         env:
           DEPLOY_MESSAGE: BD455_REPLACEMENT_DEPLOY_MESSAGE
@@ -208,6 +266,21 @@ jobs:
           context: ${{ needs.start.outputs.context }}
           job_results: ${{ toJSON(needs.*.result) }}
           environment_urls: bd455-settings-replace|https://example.com/bd455/replacement
+      - name: Audit selected result outputs
+        if: ${{ always() }}
+        env:
+          BD_AUDIT_DEPLOYMENT_RESULT: ${{ steps.complete.outputs.deployment_result || steps.replace.outputs.deployment_result }}
+          BD_AUDIT_DECISION: ${{ steps.complete.outputs.decision || steps.replace.outputs.decision }}
+          BD_AUDIT_REASON_CODE: ${{ steps.complete.outputs.reason_code || steps.replace.outputs.reason_code }}
+          BD_AUDIT_RESULT: ${{ steps.complete.outputs.result || steps.replace.outputs.result }}
+        run: |
+          node --input-type=module <<'NODE'
+          const result = process.env.BD_AUDIT_RESULT === '' ? null : JSON.parse(process.env.BD_AUDIT_RESULT)
+          console.log('BD455_OUTPUTS ' + JSON.stringify({
+            phase: 'result', deployment_result: process.env.BD_AUDIT_DEPLOYMENT_RESULT,
+            decision: process.env.BD_AUDIT_DECISION, reason_code: process.env.BD_AUDIT_REASON_CODE, result
+          }))
+          NODE
 
   reusable-result:
     needs: [select, start, work]
