@@ -43,19 +43,19 @@ jobs:
               ...(body === undefined ? {} : {input: JSON.stringify(body)})
             })
             if (response.status !== 0) {
-            let details = {}
-            try { details = JSON.parse(response.stdout) } catch {}
-            const safe = {
-              method,
-              status: /HTTP (\d{3})/.exec(response.stderr)?.[1],
-              message: String(details.message ?? '').slice(0, 512),
-              errors: Array.isArray(details.errors) ? details.errors.slice(0, 5).map(error => ({
-                resource: error.resource, field: error.field, code: error.code,
-                message: String(error.message ?? '').slice(0, 512)
-              })) : []
+              let details = {}
+              try { details = JSON.parse(response.stdout) } catch {}
+              const safe = {
+                method,
+                status: /HTTP (\d{3})/.exec(response.stderr)?.[1],
+                message: String(details.message ?? '').slice(0, 512),
+                errors: Array.isArray(details.errors) ? details.errors.slice(0, 5).map(error => ({
+                  resource: error.resource, field: error.field, code: error.code,
+                  message: String(error.message ?? '').slice(0, 512)
+                })) : []
+              }
+              throw new Error('Fork PR API request failed: ' + JSON.stringify(safe))
             }
-            throw new Error('Fork PR API request failed: ' + JSON.stringify(safe))
-          }
             return JSON.parse(response.stdout)
           }
           const existing = api('GET', 'repos/GrantBirki/actions-sandbox/pulls?state=open&base=main&head=birki-sandbox%3Abd455-live-cross-5bbc408&per_page=100')
@@ -66,7 +66,7 @@ jobs:
             title: 'Test result mode fork completion',
             body: 'This pull request exercises result-mode completion with harmless sandbox work.',
             base: 'main', head: 'birki-sandbox:bd455-live-cross-5bbc408',
-            head_repo: 'actions-sandbox', draft: false
+            head_repo: 'actions-sandbox', draft: false, maintainer_can_modify: false
           })
           if (pull.base.repo.full_name !== 'GrantBirki/actions-sandbox' || pull.base.ref !== 'main' ||
               pull.head.repo.full_name !== 'birki-sandbox/actions-sandbox' || pull.head.ref !== 'bd455-live-cross-5bbc408' ||
