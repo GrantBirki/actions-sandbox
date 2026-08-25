@@ -1,0 +1,787 @@
+name: Result mode acceptance
+run-name: Result mode acceptance for PR ${{ github.event.issue.number }} / comment ${{ github.event.comment.id }}
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions: {}
+
+jobs:
+  seed-disabled-lock:
+    if: >-
+      ${{ (github.repository == 'GrantBirki/actions-sandbox' || github.repository == 'birki-sandbox/actions-sandbox') &&
+          github.event.issue.pull_request &&
+          github.event.comment.user.login == 'GrantBirki' &&
+          github.event.comment.body == '.bd455-final-lock bd455-final-disabled' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: GrantBirki/branch-deploy@920f08566ce18bae326eedc2493059aff223f902
+        with:
+          trigger: .bd455-final-deploy
+          noop_trigger: .bd455-final-noop
+          lock_trigger: .bd455-final-lock
+          environment: bd455-final-disabled
+          environment_targets: bd455-final-disabled
+          sticky_locks: true
+          admins: GrantBirki
+
+  select:
+    if: >-
+      ${{ (github.repository == 'GrantBirki/actions-sandbox' || github.repository == 'birki-sandbox/actions-sandbox') &&
+          github.event.issue.pull_request &&
+          github.event.comment.user.login == 'GrantBirki' &&
+          !startsWith(github.event.comment.body, '.bd455-final-lock') &&
+          startsWith(github.event.comment.body, '.bd455-final-') }}
+    runs-on: ubuntu-latest
+    outputs:
+      scenario: ${{ steps.select.outputs.scenario }}
+      environment: ${{ steps.select.outputs.environment }}
+      control: ${{ steps.select.outputs.control }}
+    steps:
+      - id: select
+        env:
+          COMMENT_BODY: ${{ github.event.comment.body }}
+        run: |
+          node --input-type=module <<'NODE'
+          import {appendFileSync} from 'node:fs'
+          const cases = new Map([
+            ['control-success', 'deploy'], ['control-failure', 'deploy'],
+            ['control-noop', 'noop'], ['control-false', 'deploy'],
+            ['success', 'deploy'], ['noop-failure', 'noop'],
+            ['failure', 'deploy'], ['skipped', 'deploy'],
+            ['cancelled', 'deploy'], ['noop', 'noop'],
+            ['sticky', 'deploy'], ['replacement', 'deploy'],
+            ['disabled', 'deploy'], ['missing', 'deploy'],
+            ['fork', 'deploy'], ['reusable', 'deploy'],
+            ['later-attempt', 'deploy'], ['settings-inherit', 'deploy'],
+            ['settings-replace', 'deploy'], ['head-moved', 'deploy'],
+            ['malformed-context', 'deploy'],
+            ['tampered-sha', 'deploy'],
+            ['wrong-repository', 'deploy'],
+            ['wrong-run', 'deploy'],
+            ['wrong-attempt', 'deploy'],
+            ['malformed-results', 'deploy'],
+            ['missing-results', 'deploy'],
+            ['unsafe-url', 'deploy'],
+            ['manual', 'deploy'],
+            ['reporting-failure', 'deploy']
+          ])
+          const match = /^\.bd455-final-(deploy|noop) to (bd455-final-([a-z-]+))$/.exec(process.env.COMMENT_BODY.trim())
+          if (match === null || cases.get(match[3]) !== match[1]) {
+            throw new Error('Use an exact command from the acceptance matrix')
+          }
+          appendFileSync(process.env.GITHUB_OUTPUT, [
+            `scenario=${match[3]}`, `environment=${match[2]}`,
+            `control=${match[3].startsWith('control-')}`, ''
+          ].join('\n'))
+          NODE
+
+  ordinary:
+    needs: select
+    if: ${{ needs.select.outputs.control == 'true' && needs.select.outputs.scenario != 'control-false' }}
+    runs-on: ubuntu-latest
+    permissions:
+      checks: read
+      contents: write
+      deployments: write
+      pull-requests: write
+      statuses: read
+    steps:
+      - uses: GrantBirki/branch-deploy@920f08566ce18bae326eedc2493059aff223f902
+        id: gate
+        with:
+          trigger: .bd455-final-deploy
+          noop_trigger: .bd455-final-noop
+          environment: ${{ needs.select.outputs.environment }}
+          environment_targets: ${{ needs.select.outputs.environment }}
+          commit_verification: true
+          admins: GrantBirki
+          allow_forks: ${{ github.repository == 'birki-sandbox/actions-sandbox' }}
+      - name: Audit selected admission outputs
+        if: ${{ always() }}
+        env:
+          BD_AUDIT_CONTINUE: ${{ steps.gate.outputs.continue }}
+          BD_AUDIT_SHA: ${{ steps.gate.outputs.sha }}
+          BD_AUDIT_NOOP: ${{ steps.gate.outputs.noop }}
+          BD_AUDIT_DEPLOYMENT_ID: ${{ steps.gate.outputs.deployment_id }}
+          BD_AUDIT_INITIAL_COMMENT_ID: ${{ steps.gate.outputs.initial_comment_id }}
+          BD_AUDIT_DECISION: ${{ steps.gate.outputs.decision }}
+          BD_AUDIT_REASON_CODE: ${{ steps.gate.outputs.reason_code }}
+          BD_AUDIT_LOCK_REF_SHA: ${{ steps.gate.outputs.context != '' && fromJSON(steps.gate.outputs.context).lock_ref_sha || '' }}
+          BD_AUDIT_RUN_ATTEMPT: ${{ steps.gate.outputs.context != '' && fromJSON(steps.gate.outputs.context).run_attempt || '' }}
+        run: |
+          node --input-type=module <<'NODE'
+          const keys = ['continue', 'sha', 'noop', 'deployment_id', 'initial_comment_id', 'decision', 'reason_code', 'lock_ref_sha', 'run_attempt']
+          const outputs = Object.fromEntries(keys.map(key => [key, process.env[`BD_AUDIT_${key.toUpperCase()}`] ?? '']))
+          console.log('BD455_FINAL_OUTPUTS ' + JSON.stringify({phase: 'ordinary', ...outputs}))
+          NODE
+      - name: Ordinary noop
+        if: ${{ steps.gate.outputs.continue == 'true' && steps.gate.outputs.noop == 'true' }}
+        run: echo 'Harmless ordinary noop validation'
+      - name: Ordinary deployment
+        if: ${{ steps.gate.outputs.continue == 'true' && steps.gate.outputs.noop != 'true' }}
+        run: echo 'Harmless ordinary deployment work'
+      - name: Ordinary failure
+        if: ${{ steps.gate.outputs.continue == 'true' && needs.select.outputs.scenario == 'control-failure' }}
+        run: exit 1
+
+  ordinary-explicit-false:
+    needs: select
+    if: ${{ needs.select.outputs.scenario == 'control-false' }}
+    runs-on: ubuntu-latest
+    permissions:
+      checks: read
+      contents: write
+      deployments: write
+      pull-requests: write
+      statuses: read
+    steps:
+      - uses: GrantBirki/branch-deploy@920f08566ce18bae326eedc2493059aff223f902
+        id: gate
+        with:
+          result_mode: false
+          trigger: .bd455-final-deploy
+          noop_trigger: .bd455-final-noop
+          environment: ${{ needs.select.outputs.environment }}
+          environment_targets: ${{ needs.select.outputs.environment }}
+          commit_verification: true
+          admins: GrantBirki
+          allow_forks: ${{ github.repository == 'birki-sandbox/actions-sandbox' }}
+      - name: Audit selected admission outputs
+        if: ${{ always() }}
+        env:
+          BD_AUDIT_CONTINUE: ${{ steps.gate.outputs.continue }}
+          BD_AUDIT_SHA: ${{ steps.gate.outputs.sha }}
+          BD_AUDIT_NOOP: ${{ steps.gate.outputs.noop }}
+          BD_AUDIT_DEPLOYMENT_ID: ${{ steps.gate.outputs.deployment_id }}
+          BD_AUDIT_INITIAL_COMMENT_ID: ${{ steps.gate.outputs.initial_comment_id }}
+          BD_AUDIT_DECISION: ${{ steps.gate.outputs.decision }}
+          BD_AUDIT_REASON_CODE: ${{ steps.gate.outputs.reason_code }}
+          BD_AUDIT_LOCK_REF_SHA: ${{ steps.gate.outputs.context != '' && fromJSON(steps.gate.outputs.context).lock_ref_sha || '' }}
+          BD_AUDIT_RUN_ATTEMPT: ${{ steps.gate.outputs.context != '' && fromJSON(steps.gate.outputs.context).run_attempt || '' }}
+        run: |
+          node --input-type=module <<'NODE'
+          const keys = ['continue', 'sha', 'noop', 'deployment_id', 'initial_comment_id', 'decision', 'reason_code', 'lock_ref_sha', 'run_attempt']
+          const outputs = Object.fromEntries(keys.map(key => [key, process.env[`BD_AUDIT_${key.toUpperCase()}`] ?? '']))
+          console.log('BD455_FINAL_OUTPUTS ' + JSON.stringify({phase: 'ordinary', ...outputs}))
+          NODE
+      - name: Ordinary deployment with explicit false
+        if: ${{ steps.gate.outputs.continue == 'true' && steps.gate.outputs.noop != 'true' }}
+        run: echo 'Harmless ordinary work with result_mode explicitly false'
+
+  start:
+    needs: select
+    if: ${{ needs.select.outputs.control != 'true' }}
+    runs-on: ubuntu-latest
+    permissions:
+      checks: read
+      contents: write
+      deployments: write
+      pull-requests: write
+      statuses: read
+    outputs:
+      continue: ${{ steps.gate.outputs.continue }}
+      noop: ${{ steps.gate.outputs.noop }}
+      sha: ${{ steps.gate.outputs.sha }}
+      context: ${{ steps.gate.outputs.context }}
+    steps:
+      - uses: GrantBirki/branch-deploy@920f08566ce18bae326eedc2493059aff223f902
+        id: gate
+        with:
+          trigger: .bd455-final-deploy
+          noop_trigger: .bd455-final-noop
+          environment: ${{ needs.select.outputs.environment }}
+          environment_targets: ${{ needs.select.outputs.environment }}
+          commit_verification: true
+          admins: GrantBirki
+          allow_forks: ${{ github.repository == 'birki-sandbox/actions-sandbox' || needs.select.outputs.scenario == 'fork' }}
+          checks: ${{ needs.select.outputs.scenario == 'fork' && 'test1' || 'all' }}
+          required_contexts: ${{ needs.select.outputs.scenario == 'fork' && 'test1' || 'false' }}
+          skip_completing: true
+          sticky_locks: ${{ needs.select.outputs.scenario == 'sticky' }}
+          disable_lock: ${{ needs.select.outputs.scenario == 'disabled' }}
+          deploy_message_path: ${{ startsWith(needs.select.outputs.scenario, 'settings-') && '.github/bd455-final-result-message.md' || '.github/deployment_message.md' }}
+          environment_urls: ${{ startsWith(needs.select.outputs.scenario, 'settings-') && format('{0}|https://example.com/bd455-final/start/{1}', needs.select.outputs.environment, needs.select.outputs.scenario) || '' }}
+          environment_url_in_comment: ${{ needs.select.outputs.scenario != 'settings-replace' }}
+          successful_deploy_labels: ${{ needs.select.outputs.scenario == 'settings-inherit' && 'bd455-final-inherited-success' || needs.select.outputs.scenario == 'settings-replace' && 'bd455-final-replaced-success' || '' }}
+          failed_deploy_labels: ${{ needs.select.outputs.scenario == 'settings-inherit' && 'bd455-final-inherited-failure' || needs.select.outputs.scenario == 'settings-replace' && 'bd455-final-replaced-failure' || '' }}
+      - name: Audit selected admission outputs
+        if: ${{ always() }}
+        env:
+          BD_AUDIT_CONTINUE: ${{ steps.gate.outputs.continue }}
+          BD_AUDIT_SHA: ${{ steps.gate.outputs.sha }}
+          BD_AUDIT_NOOP: ${{ steps.gate.outputs.noop }}
+          BD_AUDIT_DEPLOYMENT_ID: ${{ steps.gate.outputs.deployment_id }}
+          BD_AUDIT_INITIAL_COMMENT_ID: ${{ steps.gate.outputs.initial_comment_id }}
+          BD_AUDIT_DECISION: ${{ steps.gate.outputs.decision }}
+          BD_AUDIT_REASON_CODE: ${{ steps.gate.outputs.reason_code }}
+          BD_AUDIT_LOCK_REF_SHA: ${{ steps.gate.outputs.context != '' && fromJSON(steps.gate.outputs.context).lock_ref_sha || '' }}
+          BD_AUDIT_RUN_ATTEMPT: ${{ steps.gate.outputs.context != '' && fromJSON(steps.gate.outputs.context).run_attempt || '' }}
+        run: |
+          node --input-type=module <<'NODE'
+          const keys = ['continue', 'sha', 'noop', 'deployment_id', 'initial_comment_id', 'decision', 'reason_code', 'lock_ref_sha', 'run_attempt']
+          const outputs = Object.fromEntries(keys.map(key => [key, process.env[`BD_AUDIT_${key.toUpperCase()}`] ?? '']))
+          console.log('BD455_FINAL_OUTPUTS ' + JSON.stringify({phase: 'start', ...outputs}))
+          NODE
+
+  work:
+    needs: [select, start]
+    if: >-
+      ${{ needs.start.outputs.continue == 'true' &&
+          needs.select.outputs.scenario != 'skipped' &&
+          fromJSON(needs.start.outputs.context).run_attempt == github.run_attempt }}
+    permissions:
+      contents: write
+      pull-requests: read
+    uses: ./.github/workflows/bd455-final-result-work.yml
+    with:
+      scenario: ${{ needs.select.outputs.scenario }}
+      context: ${{ needs.start.outputs.context }}
+      noop: ${{ needs.start.outputs.noop == 'true' }}
+
+  result:
+    needs: [select, start, work]
+    if: >-
+      ${{ always() && needs.start.outputs.continue == 'true' &&
+          needs.select.outputs.scenario != 'reusable' &&
+          needs.select.outputs.scenario != 'manual' &&
+          needs.select.outputs.scenario != 'reporting-failure' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      deployments: write
+      pull-requests: write
+    steps:
+      - name: Capture original state before completion
+        id: before
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BD455_FINAL_ORIGINAL_CONTEXT: ${{ needs.start.outputs.context }}
+          BD455_FINAL_SCENARIO: ${{ needs.select.outputs.scenario }}
+        run: |
+          cat > "$RUNNER_TEMP/bd455-final-state.mjs" <<'NODE'
+          import {createHash} from 'node:crypto'
+          import {readFileSync, writeFileSync} from 'node:fs'
+          import {join} from 'node:path'
+          import {spawnSync} from 'node:child_process'
+          import {isDeepStrictEqual} from 'node:util'
+
+          const repositories = new Set(['GrantBirki/actions-sandbox', 'birki-sandbox/actions-sandbox'])
+          const rejected = new Set(['malformed-context', 'tampered-sha', 'wrong-repository', 'wrong-run', 'wrong-attempt', 'malformed-results', 'missing-results', 'unsafe-url'])
+          const scenarios = new Set(['success', 'failure', 'skipped', 'cancelled', 'noop', 'noop-failure', 'sticky', 'replacement', 'disabled', 'missing', 'fork', 'reusable', 'settings-inherit', 'settings-replace', 'head-moved', 'later-attempt', ...rejected, 'manual', 'reporting-failure'])
+          const require = (condition, message) => { if (!condition) throw new Error(message) }
+          const positive = value => Number.isSafeInteger(value) && value > 0
+          const sha = value => typeof value === 'string' && /^[0-9a-f]{40}$/.test(value)
+          const repository = process.env.GITHUB_REPOSITORY
+          const runId = Number(process.env.GITHUB_RUN_ID)
+          const runAttempt = Number(process.env.GITHUB_RUN_ATTEMPT)
+          const phase = process.argv[2]
+          require(repositories.has(repository) && positive(runId) && positive(runAttempt), 'Refusing state reads outside the controlled run')
+          require(phase === 'before' || phase === 'after', 'Invalid state snapshot phase')
+          const scopePath = join(process.env.RUNNER_TEMP, 'bd455-final-state-scope.json')
+          const beforePath = join(process.env.RUNNER_TEMP, 'bd455-final-state-before.json')
+          let scope
+          if (phase === 'before') {
+            const original = JSON.parse(process.env.BD455_FINAL_ORIGINAL_CONTEXT)
+            const scenario = process.env.BD455_FINAL_SCENARIO
+            require(scenarios.has(scenario) && original.repository === repository && original.environment === `bd455-final-${scenario}`, 'Original context is outside the fixed fixture namespace')
+            require(original.run_id === runId && positive(original.run_attempt) && (original.run_attempt === runAttempt || (scenario === 'later-attempt' && original.run_attempt < runAttempt)), 'Original context is outside this workflow run')
+            require(positive(original.issue_number) && positive(original.started_comment_id) && positive(original.trigger_comment_id), 'Original context has invalid issue/comment IDs')
+            require(sha(original.sha) && (original.lock_ref_sha === null || sha(original.lock_ref_sha)), 'Original context has invalid commit IDs')
+            require(typeof original.noop === 'boolean' && (original.deployment_id === null ? original.noop : !original.noop && positive(original.deployment_id)), 'Original context has invalid deployment IDs')
+            scope = {
+              repository, scenario, run_id: runId, run_attempt: runAttempt,
+              originating_run_attempt: original.run_attempt, issue_number: original.issue_number,
+              started_comment_id: original.started_comment_id, trigger_comment_id: original.trigger_comment_id,
+              deployment_id: original.deployment_id, environment: original.environment,
+              sha: original.sha, original_lock_ref_sha: original.lock_ref_sha
+            }
+          } else {
+            scope = JSON.parse(readFileSync(scopePath, 'utf8'))
+            require(scope.repository === repository && scope.run_id === runId && scope.run_attempt === runAttempt && scenarios.has(scope.scenario) && scope.environment === `bd455-final-${scope.scenario}`, 'Saved snapshot scope changed')
+          }
+
+          const api = (route, missingLock = false) => {
+            const response = spawnSync('gh', ['api', '--hostname', 'github.com', '--method', 'GET', `repos/${repository}/${route}`], {encoding: 'utf8', timeout: 20000})
+            let value
+            try { value = JSON.parse(response.stdout) } catch {}
+            if (response.status !== 0) {
+              if (missingLock && route === `git/ref/heads/${scope.environment}-branch-deploy-lock` && (String(value?.status) === '404' || /\(HTTP 404\)/.test(response.stderr ?? ''))) return null
+              throw new Error('Fixture state GET failed; snapshot is unavailable')
+            }
+            require(value !== undefined, 'Fixture state GET returned invalid JSON')
+            return value
+          }
+          const started = api(`issues/comments/${scope.started_comment_id}`)
+          require(started.id === scope.started_comment_id && started.issue_url === `https://api.github.com/repos/${repository}/issues/${scope.issue_number}` && typeof started.body === 'string', 'Started comment did not match the original context')
+          const trigger = api(`issues/comments/${scope.trigger_comment_id}`)
+          require(trigger.id === scope.trigger_comment_id && trigger.issue_url === started.issue_url, 'Trigger comment did not match the original issue')
+          let statuses = []
+          if (scope.deployment_id !== null) {
+            const deployment = api(`deployments/${scope.deployment_id}`)
+            require(deployment.id === scope.deployment_id && deployment.sha === scope.sha && deployment.environment === scope.environment, 'Deployment did not match the original context')
+            const records = api(`deployments/${scope.deployment_id}/statuses?per_page=100`)
+            require(Array.isArray(records) && records.length < 100 && records.every(row => positive(row.id) && ['queued', 'pending', 'in_progress', 'success', 'failure', 'error', 'inactive'].includes(row.state)), 'Deployment status snapshot is incomplete or invalid')
+            statuses = records.map(({id, state}) => ({id, state}))
+          }
+          const lock = api(`git/ref/heads/${scope.environment}-branch-deploy-lock`, true)
+          require(lock === null || (lock.ref === `refs/heads/${scope.environment}-branch-deploy-lock` && sha(lock.object?.sha)), 'Lock response did not match the original environment')
+          const state = {
+            phase, scenario: scope.scenario, run_id: runId, run_attempt: runAttempt,
+            originating_run_attempt: scope.originating_run_attempt, repository,
+            started_comment_id: scope.started_comment_id,
+            started_comment_sha256: createHash('sha256').update(started.body, 'utf8').digest('hex'),
+            deployment_id: scope.deployment_id, statuses,
+            lock_ref_sha: lock === null ? null : lock.object.sha
+          }
+          console.log('BD455_FINAL_STATE ' + JSON.stringify(state))
+          if (phase === 'before') {
+            writeFileSync(scopePath, JSON.stringify(scope), {mode: 0o600, flag: 'wx'})
+            writeFileSync(beforePath, JSON.stringify(state), {mode: 0o600, flag: 'wx'})
+          } else {
+            const before = JSON.parse(readFileSync(beforePath, 'utf8'))
+            const commentUnchanged = state.started_comment_sha256 === before.started_comment_sha256
+            const lockUnchanged = state.lock_ref_sha === before.lock_ref_sha
+            if (rejected.has(scope.scenario) || scope.scenario === 'manual' || scope.scenario === 'later-attempt' && scope.originating_run_attempt < runAttempt) {
+              require(commentUnchanged && lockUnchanged && isDeepStrictEqual(state.statuses, before.statuses), 'Expected no-write completion changed the original records')
+            }
+            if (scope.scenario === 'manual') {
+              require(sha(scope.original_lock_ref_sha) && state.lock_ref_sha === scope.original_lock_ref_sha && state.statuses[0]?.state === 'in_progress', 'Manual handoff was completed or unlocked unexpectedly')
+            }
+            if (scope.scenario === 'reporting-failure') {
+              require(commentUnchanged && lockUnchanged && sha(scope.original_lock_ref_sha) && state.lock_ref_sha === scope.original_lock_ref_sha, 'Reporting failure changed the started comment or original lock')
+              require(state.statuses.length === before.statuses.length + 1 && state.statuses[0]?.state === 'success' && isDeepStrictEqual(state.statuses.slice(1), before.statuses), 'Reporting failure did not preserve a truthful success status')
+            }
+          }
+          NODE
+          node "$RUNNER_TEMP/bd455-final-state.mjs" before
+      - name: Prepare trusted result inputs
+        id: prepare
+        env:
+          BD455_FINAL_ORIGINAL_CONTEXT: ${{ needs.start.outputs.context }}
+          BD455_FINAL_SCENARIO: ${{ needs.select.outputs.scenario }}
+          BD455_FINAL_JOB_RESULTS: ${{ toJSON(needs.*.result) }}
+          BD455_FINAL_RESULT_URL: ${{ needs.select.outputs.scenario != 'settings-inherit' && 'https://example.com/branch-deploy-acceptance' || '' }}
+        run: |
+          node --input-type=module <<'NODE'
+          import {appendFileSync} from 'node:fs'
+          import {randomUUID} from 'node:crypto'
+          const repository = process.env.GITHUB_REPOSITORY
+          const scenario = process.env.BD455_FINAL_SCENARIO
+          const original = process.env.BD455_FINAL_ORIGINAL_CONTEXT
+          const parsed = JSON.parse(original)
+          if (!['GrantBirki/actions-sandbox', 'birki-sandbox/actions-sandbox'].includes(repository) || parsed.repository !== repository || parsed.environment !== `bd455-final-${scenario}` || parsed.run_id !== Number(process.env.GITHUB_RUN_ID)) {
+            throw new Error('Refusing to prepare inputs outside the admitted fixture')
+          }
+          let context = original
+          let results = process.env.BD455_FINAL_JOB_RESULTS
+          let resultUrl = process.env.BD455_FINAL_RESULT_URL
+          if (scenario === 'malformed-context') context = '{'
+          if (scenario === 'tampered-sha') context = JSON.stringify({...parsed, sha: parsed.sha === 'a'.repeat(40) ? 'b'.repeat(40) : 'a'.repeat(40)})
+          if (scenario === 'wrong-repository') context = JSON.stringify({...parsed, repository: repository === 'GrantBirki/actions-sandbox' ? 'birki-sandbox/actions-sandbox' : 'GrantBirki/actions-sandbox'})
+          if (scenario === 'wrong-run') context = JSON.stringify({...parsed, run_id: parsed.run_id + 1})
+          if (scenario === 'wrong-attempt') context = JSON.stringify({...parsed, run_attempt: parsed.run_attempt + 1})
+          if (scenario === 'malformed-results') results = '{'
+          if (scenario === 'missing-results') results = ''
+          if (scenario === 'unsafe-url') resultUrl = 'http://example.com'
+          for (const [key, value] of Object.entries({context, job_results: results, result_url: resultUrl})) {
+            if (typeof value !== 'string') throw new Error('Missing trusted result input')
+            const delimiter = `bd455-final-${randomUUID()}`
+            if (value.includes(delimiter)) throw new Error('Unexpected output delimiter collision')
+            appendFileSync(process.env.GITHUB_OUTPUT, `${key}<<${delimiter}\n${value}\n${delimiter}\n`)
+          }
+          NODE
+      - name: Complete with inherited settings
+        uses: GrantBirki/branch-deploy@920f08566ce18bae326eedc2493059aff223f902
+        id: complete
+        if: ${{ always() && steps.before.outcome == 'success' && steps.prepare.outcome == 'success' && needs.select.outputs.scenario != 'settings-replace' }}
+        env:
+          DEPLOY_MESSAGE: ${{ needs.select.outputs.scenario == 'settings-inherit' && 'BD455_FINAL_INHERITED_DEPLOY_MESSAGE' || '' }}
+        with:
+          result_mode: true
+          context: ${{ steps.prepare.outputs.context }}
+          job_results: ${{ steps.prepare.outputs.job_results }}
+          result_url: ${{ steps.prepare.outputs.result_url }}
+          environment_urls: ${{ needs.select.outputs.scenario == 'settings-inherit' && 'bd455-final-settings-inherit|https://example.com/bd455-final/receiver-ignored' || '' }}
+          environment_url_in_comment: ${{ needs.select.outputs.scenario == 'settings-inherit' && 'not-a-boolean' || 'true' }}
+          skip_completing: ${{ needs.select.outputs.scenario == 'settings-inherit' && 'not-a-boolean' || 'false' }}
+      - name: Complete with replacement defaults
+        uses: GrantBirki/branch-deploy@920f08566ce18bae326eedc2493059aff223f902
+        id: replace
+        if: ${{ always() && steps.before.outcome == 'success' && steps.prepare.outcome == 'success' && needs.select.outputs.scenario == 'settings-replace' }}
+        env:
+          DEPLOY_MESSAGE: BD455_FINAL_REPLACEMENT_DEPLOY_MESSAGE
+        with:
+          result_mode: true
+          result_inherit_settings: false
+          context: ${{ steps.prepare.outputs.context }}
+          job_results: ${{ steps.prepare.outputs.job_results }}
+          environment_urls: bd455-final-settings-replace|https://example.com/bd455-final/replacement
+      - name: Capture original state after completion
+        id: after
+        if: ${{ always() && steps.before.outcome == 'success' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node "$RUNNER_TEMP/bd455-final-state.mjs" after
+      - name: Audit selected result outputs
+        if: ${{ always() }}
+        env:
+          BD_AUDIT_DEPLOYMENT_RESULT: ${{ steps.complete.outputs.deployment_result || steps.replace.outputs.deployment_result }}
+          BD_AUDIT_DECISION: ${{ steps.complete.outputs.decision || steps.replace.outputs.decision }}
+          BD_AUDIT_REASON_CODE: ${{ steps.complete.outputs.reason_code || steps.replace.outputs.reason_code }}
+          BD_AUDIT_RESULT: ${{ steps.complete.outputs.result || steps.replace.outputs.result }}
+        run: |
+          node --input-type=module <<'NODE'
+          const result = process.env.BD_AUDIT_RESULT === '' ? null : JSON.parse(process.env.BD_AUDIT_RESULT)
+          console.log('BD455_FINAL_OUTPUTS ' + JSON.stringify({
+            phase: 'result', deployment_result: process.env.BD_AUDIT_DEPLOYMENT_RESULT,
+            decision: process.env.BD_AUDIT_DECISION, reason_code: process.env.BD_AUDIT_REASON_CODE, result
+          }))
+          NODE
+      - name: Check the expected security rejection
+        if: ${{ always() && contains(fromJSON('["malformed-context","tampered-sha","wrong-repository","wrong-run","wrong-attempt","malformed-results","missing-results","unsafe-url"]'), needs.select.outputs.scenario) }}
+        env:
+          BD455_FINAL_SCENARIO: ${{ needs.select.outputs.scenario }}
+          BD455_FINAL_OUTCOME: ${{ steps.complete.outcome }}
+          BD455_FINAL_DEPLOYMENT_RESULT: ${{ steps.complete.outputs.deployment_result }}
+          BD455_FINAL_DECISION: ${{ steps.complete.outputs.decision }}
+          BD455_FINAL_REASON_CODE: ${{ steps.complete.outputs.reason_code }}
+        run: |
+          node --input-type=module <<'NODE'
+          const scenario = process.env.BD455_FINAL_SCENARIO
+          const inputErrors = new Set(['malformed-results', 'missing-results', 'unsafe-url'])
+          const expected = inputErrors.has(scenario) ? 'invalid_result_inputs' : 'invalid_result_context'
+          if (process.env.BD455_FINAL_OUTCOME !== 'failure' || process.env.BD455_FINAL_DEPLOYMENT_RESULT !== '' || process.env.BD455_FINAL_DECISION !== 'failure' || process.env.BD455_FINAL_REASON_CODE !== expected) {
+            throw new Error('Result mode did not reject the fixed invalid input as expected')
+          }
+          NODE
+
+
+  reusable-result:
+    needs: [select, start, work]
+    if: >-
+      ${{ always() && needs.start.outputs.continue == 'true' &&
+          needs.select.outputs.scenario == 'reusable' }}
+    permissions:
+      contents: write
+      deployments: write
+      pull-requests: write
+    uses: ./.github/workflows/bd455-final-result-finalize.yml
+    with:
+      context: ${{ needs.start.outputs.context }}
+      job_results: ${{ toJSON(needs.*.result) }}
+
+  reporting-failure:
+    needs: [select, start, work]
+    if: ${{ always() && needs.start.outputs.continue == 'true' && needs.select.outputs.scenario == 'reporting-failure' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+      deployments: write
+    steps:
+      - name: Capture original state before completion
+        id: before
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BD455_FINAL_ORIGINAL_CONTEXT: ${{ needs.start.outputs.context }}
+          BD455_FINAL_SCENARIO: ${{ needs.select.outputs.scenario }}
+        run: |
+          cat > "$RUNNER_TEMP/bd455-final-state.mjs" <<'NODE'
+          import {createHash} from 'node:crypto'
+          import {readFileSync, writeFileSync} from 'node:fs'
+          import {join} from 'node:path'
+          import {spawnSync} from 'node:child_process'
+          import {isDeepStrictEqual} from 'node:util'
+
+          const repositories = new Set(['GrantBirki/actions-sandbox', 'birki-sandbox/actions-sandbox'])
+          const rejected = new Set(['malformed-context', 'tampered-sha', 'wrong-repository', 'wrong-run', 'wrong-attempt', 'malformed-results', 'missing-results', 'unsafe-url'])
+          const scenarios = new Set(['success', 'failure', 'skipped', 'cancelled', 'noop', 'noop-failure', 'sticky', 'replacement', 'disabled', 'missing', 'fork', 'reusable', 'settings-inherit', 'settings-replace', 'head-moved', 'later-attempt', ...rejected, 'manual', 'reporting-failure'])
+          const require = (condition, message) => { if (!condition) throw new Error(message) }
+          const positive = value => Number.isSafeInteger(value) && value > 0
+          const sha = value => typeof value === 'string' && /^[0-9a-f]{40}$/.test(value)
+          const repository = process.env.GITHUB_REPOSITORY
+          const runId = Number(process.env.GITHUB_RUN_ID)
+          const runAttempt = Number(process.env.GITHUB_RUN_ATTEMPT)
+          const phase = process.argv[2]
+          require(repositories.has(repository) && positive(runId) && positive(runAttempt), 'Refusing state reads outside the controlled run')
+          require(phase === 'before' || phase === 'after', 'Invalid state snapshot phase')
+          const scopePath = join(process.env.RUNNER_TEMP, 'bd455-final-state-scope.json')
+          const beforePath = join(process.env.RUNNER_TEMP, 'bd455-final-state-before.json')
+          let scope
+          if (phase === 'before') {
+            const original = JSON.parse(process.env.BD455_FINAL_ORIGINAL_CONTEXT)
+            const scenario = process.env.BD455_FINAL_SCENARIO
+            require(scenarios.has(scenario) && original.repository === repository && original.environment === `bd455-final-${scenario}`, 'Original context is outside the fixed fixture namespace')
+            require(original.run_id === runId && positive(original.run_attempt) && (original.run_attempt === runAttempt || (scenario === 'later-attempt' && original.run_attempt < runAttempt)), 'Original context is outside this workflow run')
+            require(positive(original.issue_number) && positive(original.started_comment_id) && positive(original.trigger_comment_id), 'Original context has invalid issue/comment IDs')
+            require(sha(original.sha) && (original.lock_ref_sha === null || sha(original.lock_ref_sha)), 'Original context has invalid commit IDs')
+            require(typeof original.noop === 'boolean' && (original.deployment_id === null ? original.noop : !original.noop && positive(original.deployment_id)), 'Original context has invalid deployment IDs')
+            scope = {
+              repository, scenario, run_id: runId, run_attempt: runAttempt,
+              originating_run_attempt: original.run_attempt, issue_number: original.issue_number,
+              started_comment_id: original.started_comment_id, trigger_comment_id: original.trigger_comment_id,
+              deployment_id: original.deployment_id, environment: original.environment,
+              sha: original.sha, original_lock_ref_sha: original.lock_ref_sha
+            }
+          } else {
+            scope = JSON.parse(readFileSync(scopePath, 'utf8'))
+            require(scope.repository === repository && scope.run_id === runId && scope.run_attempt === runAttempt && scenarios.has(scope.scenario) && scope.environment === `bd455-final-${scope.scenario}`, 'Saved snapshot scope changed')
+          }
+
+          const api = (route, missingLock = false) => {
+            const response = spawnSync('gh', ['api', '--hostname', 'github.com', '--method', 'GET', `repos/${repository}/${route}`], {encoding: 'utf8', timeout: 20000})
+            let value
+            try { value = JSON.parse(response.stdout) } catch {}
+            if (response.status !== 0) {
+              if (missingLock && route === `git/ref/heads/${scope.environment}-branch-deploy-lock` && (String(value?.status) === '404' || /\(HTTP 404\)/.test(response.stderr ?? ''))) return null
+              throw new Error('Fixture state GET failed; snapshot is unavailable')
+            }
+            require(value !== undefined, 'Fixture state GET returned invalid JSON')
+            return value
+          }
+          const started = api(`issues/comments/${scope.started_comment_id}`)
+          require(started.id === scope.started_comment_id && started.issue_url === `https://api.github.com/repos/${repository}/issues/${scope.issue_number}` && typeof started.body === 'string', 'Started comment did not match the original context')
+          const trigger = api(`issues/comments/${scope.trigger_comment_id}`)
+          require(trigger.id === scope.trigger_comment_id && trigger.issue_url === started.issue_url, 'Trigger comment did not match the original issue')
+          let statuses = []
+          if (scope.deployment_id !== null) {
+            const deployment = api(`deployments/${scope.deployment_id}`)
+            require(deployment.id === scope.deployment_id && deployment.sha === scope.sha && deployment.environment === scope.environment, 'Deployment did not match the original context')
+            const records = api(`deployments/${scope.deployment_id}/statuses?per_page=100`)
+            require(Array.isArray(records) && records.length < 100 && records.every(row => positive(row.id) && ['queued', 'pending', 'in_progress', 'success', 'failure', 'error', 'inactive'].includes(row.state)), 'Deployment status snapshot is incomplete or invalid')
+            statuses = records.map(({id, state}) => ({id, state}))
+          }
+          const lock = api(`git/ref/heads/${scope.environment}-branch-deploy-lock`, true)
+          require(lock === null || (lock.ref === `refs/heads/${scope.environment}-branch-deploy-lock` && sha(lock.object?.sha)), 'Lock response did not match the original environment')
+          const state = {
+            phase, scenario: scope.scenario, run_id: runId, run_attempt: runAttempt,
+            originating_run_attempt: scope.originating_run_attempt, repository,
+            started_comment_id: scope.started_comment_id,
+            started_comment_sha256: createHash('sha256').update(started.body, 'utf8').digest('hex'),
+            deployment_id: scope.deployment_id, statuses,
+            lock_ref_sha: lock === null ? null : lock.object.sha
+          }
+          console.log('BD455_FINAL_STATE ' + JSON.stringify(state))
+          if (phase === 'before') {
+            writeFileSync(scopePath, JSON.stringify(scope), {mode: 0o600, flag: 'wx'})
+            writeFileSync(beforePath, JSON.stringify(state), {mode: 0o600, flag: 'wx'})
+          } else {
+            const before = JSON.parse(readFileSync(beforePath, 'utf8'))
+            const commentUnchanged = state.started_comment_sha256 === before.started_comment_sha256
+            const lockUnchanged = state.lock_ref_sha === before.lock_ref_sha
+            if (rejected.has(scope.scenario) || scope.scenario === 'manual' || scope.scenario === 'later-attempt' && scope.originating_run_attempt < runAttempt) {
+              require(commentUnchanged && lockUnchanged && isDeepStrictEqual(state.statuses, before.statuses), 'Expected no-write completion changed the original records')
+            }
+            if (scope.scenario === 'manual') {
+              require(sha(scope.original_lock_ref_sha) && state.lock_ref_sha === scope.original_lock_ref_sha && state.statuses[0]?.state === 'in_progress', 'Manual handoff was completed or unlocked unexpectedly')
+            }
+            if (scope.scenario === 'reporting-failure') {
+              require(commentUnchanged && lockUnchanged && sha(scope.original_lock_ref_sha) && state.lock_ref_sha === scope.original_lock_ref_sha, 'Reporting failure changed the started comment or original lock')
+              require(state.statuses.length === before.statuses.length + 1 && state.statuses[0]?.state === 'success' && isDeepStrictEqual(state.statuses.slice(1), before.statuses), 'Reporting failure did not preserve a truthful success status')
+            }
+          }
+          NODE
+          node "$RUNNER_TEMP/bd455-final-state.mjs" before
+      - name: Prepare trusted result inputs
+        id: prepare
+        env:
+          BD455_FINAL_ORIGINAL_CONTEXT: ${{ needs.start.outputs.context }}
+          BD455_FINAL_SCENARIO: ${{ needs.select.outputs.scenario }}
+          BD455_FINAL_JOB_RESULTS: ${{ toJSON(needs.*.result) }}
+          BD455_FINAL_RESULT_URL: ${{ needs.select.outputs.scenario != 'settings-inherit' && 'https://example.com/branch-deploy-acceptance' || '' }}
+        run: |
+          node --input-type=module <<'NODE'
+          import {appendFileSync} from 'node:fs'
+          import {randomUUID} from 'node:crypto'
+          const repository = process.env.GITHUB_REPOSITORY
+          const scenario = process.env.BD455_FINAL_SCENARIO
+          const original = process.env.BD455_FINAL_ORIGINAL_CONTEXT
+          const parsed = JSON.parse(original)
+          if (!['GrantBirki/actions-sandbox', 'birki-sandbox/actions-sandbox'].includes(repository) || parsed.repository !== repository || parsed.environment !== `bd455-final-${scenario}` || parsed.run_id !== Number(process.env.GITHUB_RUN_ID)) {
+            throw new Error('Refusing to prepare inputs outside the admitted fixture')
+          }
+          let context = original
+          let results = process.env.BD455_FINAL_JOB_RESULTS
+          let resultUrl = process.env.BD455_FINAL_RESULT_URL
+          if (scenario === 'malformed-context') context = '{'
+          if (scenario === 'tampered-sha') context = JSON.stringify({...parsed, sha: parsed.sha === 'a'.repeat(40) ? 'b'.repeat(40) : 'a'.repeat(40)})
+          if (scenario === 'wrong-repository') context = JSON.stringify({...parsed, repository: repository === 'GrantBirki/actions-sandbox' ? 'birki-sandbox/actions-sandbox' : 'GrantBirki/actions-sandbox'})
+          if (scenario === 'wrong-run') context = JSON.stringify({...parsed, run_id: parsed.run_id + 1})
+          if (scenario === 'wrong-attempt') context = JSON.stringify({...parsed, run_attempt: parsed.run_attempt + 1})
+          if (scenario === 'malformed-results') results = '{'
+          if (scenario === 'missing-results') results = ''
+          if (scenario === 'unsafe-url') resultUrl = 'http://example.com'
+          for (const [key, value] of Object.entries({context, job_results: results, result_url: resultUrl})) {
+            if (typeof value !== 'string') throw new Error('Missing trusted result input')
+            const delimiter = `bd455-final-${randomUUID()}`
+            if (value.includes(delimiter)) throw new Error('Unexpected output delimiter collision')
+            appendFileSync(process.env.GITHUB_OUTPUT, `${key}<<${delimiter}\n${value}\n${delimiter}\n`)
+          }
+          NODE
+      - name: Complete with restricted reporting permissions
+        id: complete
+        if: ${{ always() && steps.before.outcome == 'success' && steps.prepare.outcome == 'success' }}
+        uses: GrantBirki/branch-deploy@920f08566ce18bae326eedc2493059aff223f902
+        with:
+          result_mode: true
+          context: ${{ steps.prepare.outputs.context }}
+          job_results: ${{ steps.prepare.outputs.job_results }}
+          result_url: ${{ steps.prepare.outputs.result_url }}
+      - name: Capture original state after completion
+        id: after
+        if: ${{ always() && steps.before.outcome == 'success' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node "$RUNNER_TEMP/bd455-final-state.mjs" after
+      - name: Audit selected result outputs
+        if: ${{ always() }}
+        env:
+          BD_AUDIT_DEPLOYMENT_RESULT: ${{ steps.complete.outputs.deployment_result }}
+          BD_AUDIT_DECISION: ${{ steps.complete.outputs.decision }}
+          BD_AUDIT_REASON_CODE: ${{ steps.complete.outputs.reason_code }}
+          BD_AUDIT_RESULT: ${{ steps.complete.outputs.result }}
+        run: |
+          node --input-type=module <<'NODE'
+          const result = process.env.BD_AUDIT_RESULT === '' ? null : JSON.parse(process.env.BD_AUDIT_RESULT)
+          console.log('BD455_FINAL_OUTPUTS ' + JSON.stringify({
+            phase: 'result', deployment_result: process.env.BD_AUDIT_DEPLOYMENT_RESULT,
+            decision: process.env.BD_AUDIT_DECISION, reason_code: process.env.BD_AUDIT_REASON_CODE, result
+          }))
+          NODE
+      - name: Check the expected reporting failure
+        if: ${{ always() }}
+        env:
+          BD455_FINAL_OUTCOME: ${{ steps.complete.outcome }}
+          BD455_FINAL_DEPLOYMENT_RESULT: ${{ steps.complete.outputs.deployment_result }}
+          BD455_FINAL_DECISION: ${{ steps.complete.outputs.decision }}
+          BD455_FINAL_REASON_CODE: ${{ steps.complete.outputs.reason_code }}
+        run: |
+          node --input-type=module <<'NODE'
+          if (process.env.BD455_FINAL_OUTCOME !== 'failure' || process.env.BD455_FINAL_DEPLOYMENT_RESULT !== 'success' || process.env.BD455_FINAL_DECISION !== 'failure' || process.env.BD455_FINAL_REASON_CODE !== 'result_completion_failed') {
+            throw new Error('Reporting failure did not preserve the successful work outcome')
+          }
+          NODE
+
+  manual:
+    needs: [select, start, work]
+    if: ${{ always() && needs.start.outputs.continue == 'true' && needs.select.outputs.scenario == 'manual' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+      deployments: read
+    steps:
+      - name: Capture original state before completion
+        id: before
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BD455_FINAL_ORIGINAL_CONTEXT: ${{ needs.start.outputs.context }}
+          BD455_FINAL_SCENARIO: ${{ needs.select.outputs.scenario }}
+        run: |
+          cat > "$RUNNER_TEMP/bd455-final-state.mjs" <<'NODE'
+          import {createHash} from 'node:crypto'
+          import {readFileSync, writeFileSync} from 'node:fs'
+          import {join} from 'node:path'
+          import {spawnSync} from 'node:child_process'
+          import {isDeepStrictEqual} from 'node:util'
+
+          const repositories = new Set(['GrantBirki/actions-sandbox', 'birki-sandbox/actions-sandbox'])
+          const rejected = new Set(['malformed-context', 'tampered-sha', 'wrong-repository', 'wrong-run', 'wrong-attempt', 'malformed-results', 'missing-results', 'unsafe-url'])
+          const scenarios = new Set(['success', 'failure', 'skipped', 'cancelled', 'noop', 'noop-failure', 'sticky', 'replacement', 'disabled', 'missing', 'fork', 'reusable', 'settings-inherit', 'settings-replace', 'head-moved', 'later-attempt', ...rejected, 'manual', 'reporting-failure'])
+          const require = (condition, message) => { if (!condition) throw new Error(message) }
+          const positive = value => Number.isSafeInteger(value) && value > 0
+          const sha = value => typeof value === 'string' && /^[0-9a-f]{40}$/.test(value)
+          const repository = process.env.GITHUB_REPOSITORY
+          const runId = Number(process.env.GITHUB_RUN_ID)
+          const runAttempt = Number(process.env.GITHUB_RUN_ATTEMPT)
+          const phase = process.argv[2]
+          require(repositories.has(repository) && positive(runId) && positive(runAttempt), 'Refusing state reads outside the controlled run')
+          require(phase === 'before' || phase === 'after', 'Invalid state snapshot phase')
+          const scopePath = join(process.env.RUNNER_TEMP, 'bd455-final-state-scope.json')
+          const beforePath = join(process.env.RUNNER_TEMP, 'bd455-final-state-before.json')
+          let scope
+          if (phase === 'before') {
+            const original = JSON.parse(process.env.BD455_FINAL_ORIGINAL_CONTEXT)
+            const scenario = process.env.BD455_FINAL_SCENARIO
+            require(scenarios.has(scenario) && original.repository === repository && original.environment === `bd455-final-${scenario}`, 'Original context is outside the fixed fixture namespace')
+            require(original.run_id === runId && positive(original.run_attempt) && (original.run_attempt === runAttempt || (scenario === 'later-attempt' && original.run_attempt < runAttempt)), 'Original context is outside this workflow run')
+            require(positive(original.issue_number) && positive(original.started_comment_id) && positive(original.trigger_comment_id), 'Original context has invalid issue/comment IDs')
+            require(sha(original.sha) && (original.lock_ref_sha === null || sha(original.lock_ref_sha)), 'Original context has invalid commit IDs')
+            require(typeof original.noop === 'boolean' && (original.deployment_id === null ? original.noop : !original.noop && positive(original.deployment_id)), 'Original context has invalid deployment IDs')
+            scope = {
+              repository, scenario, run_id: runId, run_attempt: runAttempt,
+              originating_run_attempt: original.run_attempt, issue_number: original.issue_number,
+              started_comment_id: original.started_comment_id, trigger_comment_id: original.trigger_comment_id,
+              deployment_id: original.deployment_id, environment: original.environment,
+              sha: original.sha, original_lock_ref_sha: original.lock_ref_sha
+            }
+          } else {
+            scope = JSON.parse(readFileSync(scopePath, 'utf8'))
+            require(scope.repository === repository && scope.run_id === runId && scope.run_attempt === runAttempt && scenarios.has(scope.scenario) && scope.environment === `bd455-final-${scope.scenario}`, 'Saved snapshot scope changed')
+          }
+
+          const api = (route, missingLock = false) => {
+            const response = spawnSync('gh', ['api', '--hostname', 'github.com', '--method', 'GET', `repos/${repository}/${route}`], {encoding: 'utf8', timeout: 20000})
+            let value
+            try { value = JSON.parse(response.stdout) } catch {}
+            if (response.status !== 0) {
+              if (missingLock && route === `git/ref/heads/${scope.environment}-branch-deploy-lock` && (String(value?.status) === '404' || /\(HTTP 404\)/.test(response.stderr ?? ''))) return null
+              throw new Error('Fixture state GET failed; snapshot is unavailable')
+            }
+            require(value !== undefined, 'Fixture state GET returned invalid JSON')
+            return value
+          }
+          const started = api(`issues/comments/${scope.started_comment_id}`)
+          require(started.id === scope.started_comment_id && started.issue_url === `https://api.github.com/repos/${repository}/issues/${scope.issue_number}` && typeof started.body === 'string', 'Started comment did not match the original context')
+          const trigger = api(`issues/comments/${scope.trigger_comment_id}`)
+          require(trigger.id === scope.trigger_comment_id && trigger.issue_url === started.issue_url, 'Trigger comment did not match the original issue')
+          let statuses = []
+          if (scope.deployment_id !== null) {
+            const deployment = api(`deployments/${scope.deployment_id}`)
+            require(deployment.id === scope.deployment_id && deployment.sha === scope.sha && deployment.environment === scope.environment, 'Deployment did not match the original context')
+            const records = api(`deployments/${scope.deployment_id}/statuses?per_page=100`)
+            require(Array.isArray(records) && records.length < 100 && records.every(row => positive(row.id) && ['queued', 'pending', 'in_progress', 'success', 'failure', 'error', 'inactive'].includes(row.state)), 'Deployment status snapshot is incomplete or invalid')
+            statuses = records.map(({id, state}) => ({id, state}))
+          }
+          const lock = api(`git/ref/heads/${scope.environment}-branch-deploy-lock`, true)
+          require(lock === null || (lock.ref === `refs/heads/${scope.environment}-branch-deploy-lock` && sha(lock.object?.sha)), 'Lock response did not match the original environment')
+          const state = {
+            phase, scenario: scope.scenario, run_id: runId, run_attempt: runAttempt,
+            originating_run_attempt: scope.originating_run_attempt, repository,
+            started_comment_id: scope.started_comment_id,
+            started_comment_sha256: createHash('sha256').update(started.body, 'utf8').digest('hex'),
+            deployment_id: scope.deployment_id, statuses,
+            lock_ref_sha: lock === null ? null : lock.object.sha
+          }
+          console.log('BD455_FINAL_STATE ' + JSON.stringify(state))
+          if (phase === 'before') {
+            writeFileSync(scopePath, JSON.stringify(scope), {mode: 0o600, flag: 'wx'})
+            writeFileSync(beforePath, JSON.stringify(state), {mode: 0o600, flag: 'wx'})
+          } else {
+            const before = JSON.parse(readFileSync(beforePath, 'utf8'))
+            const commentUnchanged = state.started_comment_sha256 === before.started_comment_sha256
+            const lockUnchanged = state.lock_ref_sha === before.lock_ref_sha
+            if (rejected.has(scope.scenario) || scope.scenario === 'manual' || scope.scenario === 'later-attempt' && scope.originating_run_attempt < runAttempt) {
+              require(commentUnchanged && lockUnchanged && isDeepStrictEqual(state.statuses, before.statuses), 'Expected no-write completion changed the original records')
+            }
+            if (scope.scenario === 'manual') {
+              require(sha(scope.original_lock_ref_sha) && state.lock_ref_sha === scope.original_lock_ref_sha && state.statuses[0]?.state === 'in_progress', 'Manual handoff was completed or unlocked unexpectedly')
+            }
+            if (scope.scenario === 'reporting-failure') {
+              require(commentUnchanged && lockUnchanged && sha(scope.original_lock_ref_sha) && state.lock_ref_sha === scope.original_lock_ref_sha, 'Reporting failure changed the started comment or original lock')
+              require(state.statuses.length === before.statuses.length + 1 && state.statuses[0]?.state === 'success' && isDeepStrictEqual(state.statuses.slice(1), before.statuses), 'Reporting failure did not preserve a truthful success status')
+            }
+          }
+          NODE
+          node "$RUNNER_TEMP/bd455-final-state.mjs" before
+      - name: Capture original state after completion
+        id: after
+        if: ${{ always() && steps.before.outcome == 'success' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node "$RUNNER_TEMP/bd455-final-state.mjs" after
