@@ -42,7 +42,20 @@ jobs:
               encoding: 'utf8', timeout: 30000,
               ...(body === undefined ? {} : {input: JSON.stringify(body)})
             })
-            if (response.status !== 0) throw new Error('Fork PR API request failed; inspect permissions and the prepared head branch')
+            if (response.status !== 0) {
+            let details = {}
+            try { details = JSON.parse(response.stdout) } catch {}
+            const safe = {
+              method,
+              status: /HTTP (\d{3})/.exec(response.stderr)?.[1],
+              message: String(details.message ?? '').slice(0, 512),
+              errors: Array.isArray(details.errors) ? details.errors.slice(0, 5).map(error => ({
+                resource: error.resource, field: error.field, code: error.code,
+                message: String(error.message ?? '').slice(0, 512)
+              })) : []
+            }
+            throw new Error('Fork PR API request failed: ' + JSON.stringify(safe))
+          }
             return JSON.parse(response.stdout)
           }
           const existing = api('GET', 'repos/GrantBirki/actions-sandbox/pulls?state=open&base=main&head=birki-sandbox%3Abd455-live-cross-5bbc408&per_page=100')
