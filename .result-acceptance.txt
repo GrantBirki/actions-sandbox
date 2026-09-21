@@ -1,1 +1,2 @@
 Result acceptance: lower
+Result acceptance: upper
