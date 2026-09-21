@@ -1,2 +1,3 @@
 Stack acceptance: lower
 Stack acceptance: middle
+Stack acceptance: upper
