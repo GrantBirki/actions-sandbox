@@ -63,7 +63,7 @@ jobs:
           assert outputs.get('reason_code') == expected, (expected, outputs)
           assert json.loads(outputs['result'])['reason_code'] == expected
           permitted = expected in ('deployment_ready', 'noop_ready')
-          assert outputs.get('continue') == str(permitted).lower(), outputs
+          assert (outputs.get('continue') == 'true') == permitted, outputs
           if permitted:
               assert os.environ['CANDIDATE_OUTCOME'] == 'success'
               expected_sha = re.search(r'--sha=([a-f0-9]{40})', body)
