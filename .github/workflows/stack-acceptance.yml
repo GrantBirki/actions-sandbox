@@ -48,7 +48,7 @@ jobs:
           CANDIDATE_OUTPUTS: ${{ toJSON(steps.candidate.outputs) }}
           CANDIDATE_OUTCOME: ${{ steps.candidate.outcome }}
         run: |
-          python3 - <<'PY'
+          python3 -I - <<'PY'
           import json
           import os
           import re
