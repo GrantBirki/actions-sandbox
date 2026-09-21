@@ -27,7 +27,7 @@ jobs:
           unlock_trigger: .stack-unlock
           enable_pr_stacks: ${{ !contains(github.event.comment.body, '--disabled') }}
           admins: ${{ contains(github.event.comment.body, '--no-admin') && 'false' || 'GrantBirki' }}
-          checks: ${{ contains(github.event.comment.body, '--explicit-check') && 'test1,stack-acceptance-gate' || 'all' }}
+          checks: ${{ contains(github.event.comment.body, '--explicit-check') && 'test1,stack-acceptance-gate' || (contains(github.event.comment.body, '--required') && 'required' || 'all') }}
           commit_verification: true
           stable_branch: main
           environment: sandbox
