@@ -13,6 +13,7 @@ permissions:
 
 jobs:
   demo:
+    if: ${{ contains(fromJSON('["OWNER", "MEMBER"]'), github.event.comment.author_association) }}
     runs-on: ubuntu-latest
     steps:
       # execute IssueOps command logic, hooray!

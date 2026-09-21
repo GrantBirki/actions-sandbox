@@ -13,7 +13,7 @@ permissions:
 
 jobs:
   trigger:
-    if: ${{ github.event.issue.pull_request && startsWith(github.event.comment.body, '.repro492') }}
+    if: ${{ github.event.issue.pull_request && contains(fromJSON('["OWNER", "MEMBER"]'), github.event.comment.author_association) && startsWith(github.event.comment.body, '.repro492') }}
     runs-on: ubuntu-latest
     outputs:
       continue: ${{ steps.branch-deploy.outputs.continue }}

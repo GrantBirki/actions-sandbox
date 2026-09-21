@@ -13,7 +13,7 @@ permissions:
 
 jobs:
   branch-deploy:
-    if: ${{ github.event.issue.pull_request }} # only run on pull request comments
+    if: ${{ github.event.issue.pull_request && contains(fromJSON('["OWNER", "MEMBER"]'), github.event.comment.author_association) }} # only run on pull request comments
     runs-on: ubuntu-latest
 
     steps:
