@@ -1,0 +1,75 @@
+name: stack-acceptance
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: write
+  deployments: write
+  pull-requests: write
+  checks: read
+  statuses: read
+
+jobs:
+  stack-acceptance:
+    if: ${{ github.event.issue.pull_request && contains(fromJSON('["OWNER", "MEMBER"]'), github.event.comment.author_association) && startsWith(github.event.comment.body, '.stack') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Run candidate
+        id: candidate
+        continue-on-error: true
+        uses: GrantBirki/branch-deploy@d5eecceee95c1cf55da58c78b297b3181f40e69c
+        with:
+          trigger: .stack
+          noop_trigger: .stack-noop
+          lock_trigger: .stack-lock
+          unlock_trigger: .stack-unlock
+          enable_pr_stacks: ${{ !contains(github.event.comment.body, '--disabled') }}
+          admins: ${{ contains(github.event.comment.body, '--no-admin') && 'false' || 'GrantBirki' }}
+          checks: ${{ contains(github.event.comment.body, '--explicit-check') && 'test1,stack-acceptance-gate' || 'all' }}
+          commit_verification: true
+          stable_branch: main
+          environment: sandbox
+          environment_targets: sandbox
+          production_environments: production
+          sticky_locks: false
+          sticky_locks_for_noop: false
+          update_branch: disabled
+      - name: Checkout selected commit
+        if: steps.candidate.outputs.continue == 'true'
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ steps.candidate.outputs.sha }}
+          persist-credentials: false
+      - name: Assert candidate result
+        if: always()
+        env:
+          CANDIDATE_OUTPUTS: ${{ toJSON(steps.candidate.outputs) }}
+          CANDIDATE_OUTCOME: ${{ steps.candidate.outcome }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import re
+          import subprocess
+          from pathlib import Path
+
+          event = json.loads(Path(os.environ['GITHUB_EVENT_PATH']).read_text())
+          body = event['comment']['body']
+          outputs = json.loads(os.environ['CANDIDATE_OUTPUTS'])
+          expected_match = re.search(r'--expect=([a-z_]+)', body)
+          expected = expected_match.group(1) if expected_match else ('noop_ready' if body.startswith('.stack-noop') else 'deployment_ready')
+          assert outputs.get('reason_code') == expected, (expected, outputs)
+          assert json.loads(outputs['result'])['reason_code'] == expected
+          permitted = expected in ('deployment_ready', 'noop_ready')
+          assert outputs.get('continue') == str(permitted).lower(), outputs
+          if permitted:
+              assert os.environ['CANDIDATE_OUTCOME'] == 'success'
+              expected_sha = re.search(r'--sha=([a-f0-9]{40})', body)
+              assert expected_sha is not None, 'The command must name the expected PR head SHA'
+              assert outputs['sha'] == expected_sha.group(1), outputs
+              assert subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip() == outputs['sha']
+              assert outputs['noop'] == str(expected == 'noop_ready').lower()
+          print(json.dumps({'pull_request': event['issue']['number'], 'comment_id': event['comment']['id'], 'outcome': os.environ['CANDIDATE_OUTCOME'], 'outputs': outputs}, indent=2))
+          PY
