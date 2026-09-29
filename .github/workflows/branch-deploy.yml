@@ -35,20 +35,41 @@ jobs:
           #checks: 'required'
           #ignored_checks: 'test1,test3'
 
+      - name: validate deployment revision
+        if: ${{ steps.branch-deploy.outputs.continue == 'true' }}
+        env:
+          DEPLOY_SHA: ${{ steps.branch-deploy.outputs.sha }}
+        run: |
+          [[ "$DEPLOY_SHA" =~ ^[0-9a-f]{40}$ ]]
+
       # Checkout your projects repository based on the ref provided by the branch-deploy step
       - uses: actions/checkout@v6
+        if: ${{ steps.branch-deploy.outputs.continue == 'true' }}
         with:
           ref: ${{ steps.branch-deploy.outputs.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: verify deployment checkout
+        if: ${{ steps.branch-deploy.outputs.continue == 'true' }}
+        env:
+          DEPLOY_SHA: ${{ steps.branch-deploy.outputs.sha }}
+        run: |
+          test "$(git rev-parse HEAD)" = "$DEPLOY_SHA"
+          for file in README.md noop; do
+            [[ -f "$file" && ! -L "$file" ]] || exit 1
+          done
 
       - name: view parsed json params (if present)
+        if: ${{ steps.branch-deploy.outputs.continue == 'true' }}
         env:
           PARSED_PARAMS: ${{ steps.branch-deploy.outputs.parsed_params }}
         run: |
-          echo "parsed_params: $PARSED_PARAMS"
+          printf 'parsed_params: %s\n' "$PARSED_PARAMS"
           # if parsed_params is not empty, parse it as json and print it nicely
           if [ -n "$PARSED_PARAMS" ]; then
             echo "parsed_params is not empty, parsing as json:"
-            echo "$PARSED_PARAMS" | jq .
+            printf '%s\n' "$PARSED_PARAMS" | jq .
           else
             echo "parsed_params is empty"
           fi
@@ -57,9 +78,12 @@ jobs:
       # conditionally run a noop deployment
       - name: fake noop deploy
         if: ${{ steps.branch-deploy.outputs.continue == 'true' && steps.branch-deploy.outputs.noop == 'true' }}
+        env:
+          DEPLOY_SHA: ${{ steps.branch-deploy.outputs.sha }}
+          DEPLOY_REF: ${{ steps.branch-deploy.outputs.ref }}
         run: |
           echo "I am doing a fake noop deploy"
-          echo "noop -> sha: ${{ steps.branch-deploy.outputs.sha }} ref: ${{ steps.branch-deploy.outputs.ref }}"
+          printf 'noop -> sha: %s ref: %s\n' "$DEPLOY_SHA" "$DEPLOY_REF"
           echo "Current branch: $(git branch --show-current)"
           echo "Current commit SHA: $(git rev-parse HEAD)"
           echo "===================="
@@ -73,12 +97,17 @@ jobs:
       # conditionally run a regular deployment
       - name: fake regular deploy
         if: ${{ steps.branch-deploy.outputs.continue == 'true' && steps.branch-deploy.outputs.noop != 'true' }}
+        env:
+          DEPLOY_SHA: ${{ steps.branch-deploy.outputs.sha }}
+          DEPLOY_REF: ${{ steps.branch-deploy.outputs.ref }}
+          PARAMS: ${{ steps.branch-deploy.outputs.params }}
+          PARSED_PARAMS: ${{ steps.branch-deploy.outputs.parsed_params }}
         run: |
           echo "I am doing a fake regular deploy"
-          echo "params: ${{ steps.branch-deploy.outputs.params }}"
-          echo "parsed_params: ${{ steps.branch-deploy.outputs.parsed_params }}"
+          printf 'params: %s\n' "$PARAMS"
+          printf 'parsed_params: %s\n' "$PARSED_PARAMS"
           echo "===================="
-          echo "deployed -> sha: ${{ steps.branch-deploy.outputs.sha }} ref: ${{ steps.branch-deploy.outputs.ref }}"
+          printf 'deployed -> sha: %s ref: %s\n' "$DEPLOY_SHA" "$DEPLOY_REF"
           echo "Current branch: $(git branch --show-current)"
           echo "Current commit SHA: $(git rev-parse HEAD)"
           echo "===================="
