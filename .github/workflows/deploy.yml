@@ -25,6 +25,21 @@ jobs:
       # Check out the repository
       - uses: actions/checkout@v6
         if: ${{ steps.deployment-check.outputs.continue == 'true' }} # only run if the Action returned 'true' for the 'continue' output
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: verify deployment checkout
+        if: ${{ steps.deployment-check.outputs.continue == 'true' }}
+        env:
+          DEPLOY_SHA: ${{ github.sha }}
+        run: |
+          [[ "$DEPLOY_SHA" =~ ^[0-9a-f]{40}$ ]]
+          test "$(git rev-parse HEAD)" = "$DEPLOY_SHA"
+          for file in README.md noop; do
+            [[ -f "$file" && ! -L "$file" ]] || exit 1
+          done
 
       # Do your deployment here! (However you want to do it)
       # This could be deployment logic via SSH, Terraform, AWS, Heroku, etc.
