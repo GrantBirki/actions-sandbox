@@ -6,6 +6,8 @@ on:
 permissions:
   contents: read
 
+cache-mode: none
+
 jobs:
   lock-check:
     runs-on: ubuntu-latest

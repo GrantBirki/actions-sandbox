@@ -8,6 +8,8 @@ permissions:
   deployments: read
   contents: write
 
+cache-mode: none
+
 jobs:
   unlock-on-merge:
     runs-on: ubuntu-latest

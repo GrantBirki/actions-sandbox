@@ -6,6 +6,8 @@ on:
 permissions:
   contents: write
 
+cache-mode: none
+
 jobs:
   unlock:
     runs-on: ubuntu-latest

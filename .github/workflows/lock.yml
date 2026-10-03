@@ -18,6 +18,8 @@ on:
 permissions:
   contents: write
 
+cache-mode: none
+
 jobs:
   lock:
     runs-on: ubuntu-latest

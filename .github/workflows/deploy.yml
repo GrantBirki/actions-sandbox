@@ -4,6 +4,8 @@ on:
     branches:
       - main # <-- This is the default branch for your repository
 
+cache-mode: none
+
 jobs:
   deploy:
     if: github.event_name == 'push' # Merge commits will trigger a push event

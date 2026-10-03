@@ -11,6 +11,8 @@ permissions:
   issues: write
   checks: read
 
+cache-mode: none
+
 jobs:
   demo:
     if: ${{ contains(fromJSON('["OWNER", "MEMBER"]'), github.event.comment.author_association) }}
