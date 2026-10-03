@@ -11,6 +11,8 @@ permissions:
   pull-requests: write
   statuses: read
 
+cache-mode: none
+
 jobs:
   trigger:
     if: ${{ github.event.issue.pull_request && contains(fromJSON('["OWNER", "MEMBER"]'), github.event.comment.author_association) && startsWith(github.event.comment.body, '.repro492') }}

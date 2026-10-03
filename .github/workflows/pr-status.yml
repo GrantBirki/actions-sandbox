@@ -11,6 +11,8 @@ permissions:
   checks: read
   pull-requests: write # read works if you are not using label add/delete logic
 
+cache-mode: none
+
 jobs:
   pr-status:
     runs-on: ubuntu-latest

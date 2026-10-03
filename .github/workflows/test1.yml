@@ -6,6 +6,8 @@ on:
 permissions:
   contents: read
 
+cache-mode: none
+
 jobs:
   test1:
     name: test1
