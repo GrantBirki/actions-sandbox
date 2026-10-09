@@ -25,6 +25,7 @@ jobs:
           trigger: .bd-ci
           noop_trigger: .bd-ci-noop
           stable_branch: ${{ github.event.issue.number == 245 && 'bd-ci-policy' || 'bd-ci-no-policy' }}
+          update_branch: disabled
           checks: ${{ matrix.checks }}
           environment: bd-ci-audit
           environment_targets: bd-ci-audit
