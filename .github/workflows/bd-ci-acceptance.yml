@@ -1,0 +1,43 @@
+name: BD CI acceptance
+on:
+  issue_comment:
+    types: [created]
+permissions:
+  pull-requests: write
+  deployments: write
+  contents: write
+  checks: read
+  statuses: read
+cache-mode: none
+jobs:
+  verify:
+    if: ${{ github.event.issue.pull_request && contains(fromJSON('[245,246]'), github.event.issue.number) && github.event.comment.user.login == 'GrantBirki' && (github.event.comment.body == '.bd-ci' || github.event.comment.body == '.bd-ci-noop') }}
+    strategy:
+      fail-fast: false
+      matrix:
+        checks: [all, required]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: GrantBirki/branch-deploy@963dba68b5738e62fc758cf300d1e334133e8a95
+        id: deploy
+        continue-on-error: true
+        with:
+          trigger: .bd-ci
+          noop_trigger: .bd-ci-noop
+          stable_branch: main
+          allow_non_default_target_branch_deployments: true
+          checks: ${{ matrix.checks }}
+          environment: bd-ci-audit
+          environment_targets: bd-ci-audit
+          production_environments: bd-ci-audit
+          disable_lock: true
+      - name: Record admission (no PR checkout or execution)
+        if: always()
+        env:
+          ADMITTED: ${{ steps.deploy.outputs.continue }}
+          CI_STATUS: ${{ steps.deploy.outputs.commit_status }}
+          SELECTED_SHA: ${{ steps.deploy.outputs.sha }}
+          STEP_OUTCOME: ${{ steps.deploy.outcome }}
+          IS_NOOP: ${{ steps.deploy.outputs.noop }}
+        run: |
+          printf 'continue=%s\nci=%s\nsha=%s\noutcome=%s\nnoop=%s\n' "$ADMITTED" "$CI_STATUS" "$SELECTED_SHA" "$STEP_OUTCOME" "$IS_NOOP"
