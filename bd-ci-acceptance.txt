@@ -1,0 +1,1 @@
+Disposable fixture for required CI and deployment-before-merge testing.
