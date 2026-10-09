@@ -1,0 +1,13 @@
+name: Disposable required CI
+on:
+  pull_request:
+    branches: [bd-ci-policy, bd-ci-no-policy]
+permissions:
+  contents: read
+cache-mode: none
+jobs:
+  required:
+    name: bd-ci-required
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Harmless CI test"
