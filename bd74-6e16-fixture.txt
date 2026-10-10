@@ -1,0 +1,1 @@
+Disposable required-CI acceptance fixture. No application code or credentials.
