@@ -1,4 +1,5 @@
 name: BD74 exact SHA CI acceptance
+run-name: 'BD74 PR ${{ github.event.issue.number }} comment ${{ github.event.comment.id }}'
 on:
   issue_comment:
     types: [created]
