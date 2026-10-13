@@ -1,1 +1,2 @@
 Disposable required-CI acceptance fixture. No application code or credentials.
+Run the sandbox's ordinary CI to verify the required GitHub Actions source.
