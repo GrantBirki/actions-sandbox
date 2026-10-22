@@ -1,1 +1,1 @@
-Disposable fork marker A; no application code is executed.
+Disposable fork marker B; no application code is executed.
