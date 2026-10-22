@@ -1,1 +1,1 @@
-Disposable marker for testing deployment confirmation. No code is deployed.
+Disposable marker for a repository that requires deployment before merge.
