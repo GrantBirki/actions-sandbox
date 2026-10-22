@@ -80,7 +80,7 @@ jobs:
             assert.equal(r.head_sha, sha)
             assert.ok(r.external_id.startsWith(marker))
           }
-          async function state(first, second) {
+          async function state(required, optional) {
             const query = 'query($sha:String!, $pr:Int!) { repository(owner:"GrantBirki",name:"actions-sandbox") {' +
               'object(expression:$sha) {... on Commit {oid statusCheckRollup {state contexts(first:10) {nodes {' +
               '... on CheckRun {databaseId name conclusion isRequired(pullRequestNumber:$pr) checkSuite {app {databaseId}}}' +
@@ -92,14 +92,15 @@ jobs:
               assert.equal(c.oid, sha)
               const r = c.statusCheckRollup
               const nodes = r?.contexts.nodes
-              if (nodes?.length === 2 && nodes.every(n => ids.includes(n.databaseId)) &&
-                (!first || (r.state === ([first, second].includes('FAILURE') ? 'FAILURE' : 'SUCCESS') &&
-                nodes.every((n, j) => n.databaseId === ids[j] && n.name === [selected, other][j] &&
-                  n.conclusion === [first, second][j] && n.isRequired === (j === 0) &&
-                  n.checkSuite.app.databaseId === 15368)))) return nodes
+              // GitHub may put a failing check first. Identify each check, not its position.
+              const pair = ids.map(id => nodes?.find(n => n.databaseId === id))
+              if (nodes?.length === 2 &&
+                r.state === ([required, optional].includes('FAILURE') ? 'FAILURE' : 'SUCCESS') &&
+                pair.every((n, i) => n?.name === [selected, other][i] && n.conclusion === [required, optional][i] &&
+                  n.isRequired === (i === 0) && n.checkSuite.app.databaseId === 15368)) return
               await new Promise(resolve => setTimeout(resolve, 2000))
             }
-            throw new Error('GitHub did not show both fixture checks in the expected order, source, requirement and state')
+            throw new Error('GitHub did not show the expected fixture check identities, source, requirement and states')
           }
 
           async function prepare() {
@@ -117,19 +118,15 @@ jobs:
               }
             }
             assert.equal(runs.length, 2, 'Expected exactly our two disposable checks')
-            ids = runs.map(r => r.id)
-            const observed = await state()
-            ids = observed.map(r => r.databaseId)
-            if (observed[0].name !== selected) {
-              assert.equal(observed[1].name, selected)
-              await update(ids[1], {name: 'confirmation-pagination-position'})
-              await update(ids[0], {name: selected})
-              await update(ids[1], {name: other})
-            }
+            ids = [selected, other].map(name => {
+              const found = runs.filter(r => r.name === name)
+              assert.equal(found.length, 1, 'Only the two named fixture checks may change')
+              return found[0].id
+            })
             for (const id of ids) await update(id, {conclusion: 'success'})
             await state('SUCCESS', 'SUCCESS')
             fs.writeFileSync(idsFile, JSON.stringify(ids), {mode: 0o600})
-            console.log('GitHub confirmed first check test1 is required, second check is optional; both are green.')
+            console.log('GitHub confirmed test1 is required and the other check is optional; both are green.')
           }
 
           function instrument() {
@@ -183,16 +180,19 @@ jobs:
               assert.equal(page.oid, sha)
               const {state: rollup, contexts: {nodes, pageInfo}} = page.statusCheckRollup
               const first = requests % 2 === 1
-              const index = first ? 0 : 1
               assert.equal(nodes.length, 1)
               const n = nodes[0]
+              const index = ids.indexOf(n.databaseId)
+              assert.notEqual(index, -1, 'GitHub returned an unexpected check ID')
               assert.deepEqual([n.databaseId, n.name, n.isRequired, pageInfo.hasNextPage],
-                [ids[index], first ? selected : other, first, first])
+                [ids[index], [selected, other][index], index === 0, first])
               if (first) { cursor = pageInfo.endCursor; assert.ok(cursor) }
-              const failed = opt ? !first : requests === 3
+              // We know the two source states at each read, but only GitHub decides which check is on this page.
+              const failed = requests === 1 ? moving && index === 1 : index === (opt ? 1 : 0)
               assert.deepEqual([n.conclusion, rollup],
                 [failed ? 'FAILURE' : 'SUCCESS', moving || requests > 1 ? 'FAILURE' : 'SUCCESS'])
-              const line = JSON.stringify({scenario, page: requests, check: n.name, actualCheck: n.conclusion, actualRollup: rollup})
+              const line = JSON.stringify({scenario, page: requests, check: n.name, required: n.isRequired,
+                actualCheck: n.conclusion, actualRollup: rollup})
               fs.appendFileSync(trace, line + '\n', {mode: 0o600})
               console.log('PAGE_FROM_GITHUB ' + line)
               return response
@@ -220,11 +220,28 @@ jobs:
           }
           function verify() {
             const pages = fs.readFileSync(trace, 'utf8').trim().split('\n').map(line => JSON.parse(line))
-            assert.deepEqual(pages.map(p => p.page), [1,2,3,4], 'Candidate must restart at page one and finish the second read')
+            const [a, b] = pages
+            assert.equal(b.actualRollup, 'FAILURE')
+            const bothGreen = a.actualCheck === 'SUCCESS' && b.actualCheck === 'SUCCESS'
+            const retry = !moving || bothGreen
+            const repeated = a.check === b.check
+            if (retry) {
+              assert.deepEqual(pages.map(p => p.page), [1,2,3,4], 'Candidate must restart at page one and finish a second read')
+              const final = new Map(pages.slice(2).map(p => [p.check, p.actualCheck]))
+              assert.deepEqual([final.get(selected), final.get(other)], opt ? ['SUCCESS','FAILURE'] : ['FAILURE','SUCCESS'])
+            } else {
+              // If GitHub moves a red check to the front, do not pretend these were two green pages.
+              assert.equal(pages.length, 2, 'Precisely two genuine pages showed the moving failure')
+            }
+            const observation = retry
+              ? moving ? 'Red overall with only green checks on first read; retried' : 'Overall changed between pages; retried'
+              : repeated ? 'GitHub repeated a check across pages while the failure moved'
+                : 'GitHub returned a failing check in the first paginated read while the failure moved'
+            const rejected = !retry && repeated ? 'UNAVAILABLE' : 'FAILURE'
             const {OUTCOME, REASON, CI_STATE, CONTINUE, NOOP, DEPLOYMENT, SELECTED_SHA} = env
             assert.deepEqual([OUTCOME, REASON, CI_STATE, CONTINUE || '', NOOP || '', DEPLOYMENT || '', SELECTED_SHA],
-              opt ? ['success','noop_ready','SUCCESS','true','true','',sha] : ['failure','prechecks_failed','FAILURE','','','',sha])
-            console.log('PAGINATION_PROOF ' + JSON.stringify({action, sha, scenario, result: REASON, ci: CI_STATE, pages}))
+              opt ? ['success','noop_ready','SUCCESS','true','true','',sha] : ['failure','prechecks_failed',rejected,'','','',sha])
+            console.log('PAGINATION_PROOF ' + JSON.stringify({action, sha, scenario, observation, result: REASON, ci: CI_STATE, pages}))
           }
           if (require.main !== module) instrument()
           else (process.argv[2] === 'prepare' ? prepare() : Promise.resolve().then(verify)).catch(e => {
