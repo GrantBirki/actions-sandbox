@@ -1,1 +1,1 @@
-Disposable marker for testing deployment confirmation. No code is deployed.
+Disposable fork marker A; no application code is executed.
