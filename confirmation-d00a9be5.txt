@@ -1,1 +1,1 @@
-Disposable Branch Deploy confirmation and check-pagination acceptance. No application code is changed or deployed.
+Exercise required checks on a disposable pull request. No application is deployed.
