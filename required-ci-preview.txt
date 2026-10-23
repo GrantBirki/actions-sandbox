@@ -1,0 +1,1 @@
+Harmless preview fixture for required check compatibility. No provider or publish step is connected.
