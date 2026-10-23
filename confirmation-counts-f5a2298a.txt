@@ -1,1 +1,1 @@
-Disposable Branch Deploy CI confirmation fixture. No application code runs or is deployed.
+Verify required CI and deploy before merge. Nothing is deployed outside the sandbox.
