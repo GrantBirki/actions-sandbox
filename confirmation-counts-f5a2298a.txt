@@ -1,0 +1,1 @@
+Disposable Branch Deploy CI confirmation fixture. No application code runs or is deployed.
