@@ -1,0 +1,112 @@
+name: Disposable required CI
+run-name: >-
+  Confirmation 22223ba5 / ${{ github.event.issue.number || inputs.change }} / ${{ github.event.comment.id || github.run_id }}
+
+on:
+  issue_comment:
+    types: [created]
+  workflow_dispatch:
+    inputs:
+      change:
+        description: Change only the check on the disposable ordinary pull request
+        type: choice
+        required: true
+        options: [green, fail, recover, replace]
+
+permissions: {}
+cache-mode: none
+
+jobs:
+  exercise:
+    if: >-
+      github.event_name == 'issue_comment' && github.event.issue.pull_request &&
+      github.repository == 'GrantBirki/actions-sandbox' && github.run_attempt == 1 &&
+      contains(fromJSON('[276,277,280]'), github.event.issue.number) &&
+      github.event.comment.user.login == 'GrantBirki' && github.event.comment.author_association == 'OWNER' &&
+      startsWith(github.event.comment.body, '.c82-')
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    permissions:
+      contents: write
+      pull-requests: write
+      deployments: write
+      checks: read
+      statuses: read
+    steps:
+      - name: Exercise Branch Deploy
+        id: action
+        continue-on-error: true
+        uses: GrantBirki/branch-deploy@22223ba5fe5d0eb74da42d907ed918934b5b76f6
+        with:
+          trigger: .c82-deploy
+          noop_trigger: .c82-noop
+          stable_branch: ${{ github.event.issue.number == 280 && 'main' || 'ci-confirm-22223ba5-matrix-base' }}
+          update_branch: disabled
+          environment: sandbox
+          environment_targets: sandbox
+          production_environments: sandbox
+          commit_verification: true
+          sticky_locks: false
+          sticky_locks_for_noop: false
+          allow_forks: ${{ github.event.issue.number == 277 }}
+          checks: ${{ github.event.issue.number == 280 && 'required' || contains(github.event.comment.body, ' named') && 'ci-confirm-22223ba5-matrix' || 'all' }}
+          skip_reviews: ${{ github.event.issue.number == 280 && 'sandbox' || '' }}
+          deployment_confirmation: ${{ !contains(github.event.comment.body, ' direct') }}
+          deployment_confirmation_timeout: 360
+
+      - name: Record Branch Deploy outputs
+        if: always()
+        env:
+          OUTPUTS: ${{ toJSON(steps.action.outputs) }}
+          OUTCOME: ${{ steps.action.outcome }}
+        shell: python
+        run: |
+          import json, os
+          outputs = json.loads(os.environ['OUTPUTS'])
+          keys = 'reason_code decision continue noop sha ref base_ref deployment_id commit_status review_decision commit_verified fork fork_full_name initial_comment_id'.split()
+          evidence = {key: outputs.get(key, '') for key in keys}
+          evidence['outcome'] = os.environ['OUTCOME']
+          print('CONFIRM82_EVIDENCE ' + json.dumps(evidence))
+
+      - name: Harmless worker (no checkout or deployment)
+        if: steps.action.outputs.continue == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SELECTED: ${{ steps.action.outputs.sha }}
+        run: |
+          set -euo pipefail
+          [[ "$SELECTED" =~ ^[0-9a-f]{40}$ ]]
+          test "$(gh api "repos/$GITHUB_REPOSITORY/git/commits/$SELECTED" --jq .sha)" = "$SELECTED"
+          echo 'Verified the selected commit; no pull request code was checked out or executed.'
+
+  change-fixture-check:
+    if: >-
+      github.event_name == 'workflow_dispatch' && github.repository == 'GrantBirki/actions-sandbox' &&
+      github.actor == 'GrantBirki' && github.ref == 'refs/heads/main' && github.run_attempt == 1
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    permissions:
+      checks: write
+    steps:
+      - name: Change a real check on the fixed disposable commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CHANGE: ${{ inputs.change }}
+          FIXTURE: 4bb8078009c1a5c6efdb0a0e272489f156b07b10
+        run: |
+          set -euo pipefail
+          path="repos/$GITHUB_REPOSITORY"
+          name=ci-confirm-22223ba5-matrix
+          case "$CHANGE" in
+            green|replace)
+              gh api "$path/check-runs" -f name="$name" -f head_sha="$FIXTURE" -f status=completed -f conclusion=success --jq '{id,name,head_sha,conclusion}'
+              ;;
+            fail|recover)
+              id=$(gh api "$path/commits/$FIXTURE/check-runs?check_name=$name&filter=latest" --jq '.check_runs[0].id')
+              [[ "$id" =~ ^[0-9]+$ ]]
+              test "$(gh api "$path/check-runs/$id" --jq .head_sha)" = "$FIXTURE"
+              if [[ "$CHANGE" = fail ]]; then result=failure; else result=success; fi
+              gh api -X PATCH "$path/check-runs/$id" -f status=completed -f conclusion="$result" --jq '{id,name,head_sha,conclusion}'
+              ;;
+            *) exit 2 ;;
+          esac
