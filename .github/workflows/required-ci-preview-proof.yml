@@ -1,0 +1,157 @@
+name: Required CI preview compatibility
+run-name: Required CI preview / ${{ github.event.comment.id || inputs.fixture }} / ${{ github.run_id }}
+
+on:
+  issue_comment:
+    types: [created]
+  workflow_dispatch:
+    inputs:
+      fixture:
+        description: Update sample checks only on the disposable preview commit
+        required: true
+        type: choice
+        options: [small, fill, required-red, optional-red]
+
+permissions: {}
+cache-mode: none
+
+jobs:
+  preview:
+    if: >-
+      github.event_name == 'issue_comment' && github.repository == 'GrantBirki/actions-sandbox' &&
+      github.run_attempt == 1 && github.event.issue.pull_request &&
+      github.event.comment.user.login == 'GrantBirki' && github.event.comment.author_association == 'OWNER' &&
+      startsWith(github.event.comment.body, '.review-required-ci | ')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      pull-requests: write
+      checks: read
+      statuses: read
+      deployments: read
+    steps:
+      - name: Verify this is a disposable preview pull request
+        id: fixture
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE: ${{ github.event.issue.number }}
+        shell: python
+        run: |
+          import json, os, subprocess
+          e = os.environ
+          repo = e['GITHUB_REPOSITORY']
+          pr = json.loads(subprocess.check_output(['gh', 'api', 'repos/' + repo + '/pulls/' + e['ISSUE']]))
+          head, base = pr['head'], pr['base']
+          assert pr['state'] == 'open' and head['repo']['full_name'] == base['repo']['full_name'] == repo
+          refs = {'bd-required-ci-merge-check-protected': 'main', 'bd-required-ci-merge-check-control': 'bd-required-ci-merge-check-base'}
+          assert refs[head['ref']] == base['ref']
+          with open(e['GITHUB_OUTPUT'], 'a') as out:
+              print('sha=' + head['sha'], 'base=' + base['ref'], sep='\n', file=out)
+
+      - name: Read real GitHub checks and request only a preview
+        continue-on-error: true
+        id: sample
+        uses: GrantBirki/branch-deploy@a4ac018646740794412c4ca6298858086e5b604b
+        with:
+          noop_trigger: .review-required-ci
+          stable_branch: ${{ steps.fixture.outputs.base }}
+          environment: review-required-ci
+          environment_targets: review-required-ci
+          update_branch: disabled
+          commit_verification: true
+          checks: ${{ steps.fixture.outputs.base == 'main' && 'required' || 'all' }}
+          deployment_confirmation: ${{ contains(github.event.comment.body, 'confirm') }}
+          deployment_confirmation_timeout: 540
+
+      - name: Check whether the preview could proceed
+        if: always()
+        env:
+          COMMAND: ${{ github.event.comment.body }}
+          OUTPUTS: ${{ toJSON(steps.sample.outputs) }}
+          OUTCOME: ${{ steps.sample.outcome }}
+          EXPECTED_SHA: ${{ steps.fixture.outputs.sha }}
+        shell: python
+        run: |
+          import json, os
+          e = os.environ
+          command, out = e['COMMAND'], json.loads(e['OUTPUTS'])
+          keys = 'reason_code decision continue noop commit_status sha base_ref deployment_id'.split()
+          seen = {key: out.get(key, '') for key in keys}
+          print('PREVIEW_OBSERVATION', json.dumps(seen, sort_keys=True), flush=True)
+          assert not seen['deployment_id'] and e['EXPECTED_SHA']
+          if 'stop' in command:
+              assert seen['reason_code'] == 'prechecks_failed' and not seen['continue'], seen
+              expected = ['MISSING', 'UNAVAILABLE'] if 'source' in command or 'missing' in command else ['FAILURE', 'ERROR']
+              assert seen['commit_status'] in expected, seen
+          else:
+              status = '' if 'no ci' in command else 'SUCCESS'
+              wanted = (e['EXPECTED_SHA'], 'noop_ready', 'true', 'true', status)
+              assert tuple(seen[x] for x in ('sha', 'reason_code', 'continue', 'noop', 'commit_status')) == wanted, seen
+              assert e['OUTCOME'] == 'success'
+
+  sample-checks:
+    if: >-
+      github.event_name == 'workflow_dispatch' && github.repository == 'GrantBirki/actions-sandbox' &&
+      github.actor == 'GrantBirki' && github.ref == 'refs/heads/main' && github.run_attempt == 1
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    permissions:
+      contents: read
+      checks: write
+      pull-requests: read
+    steps:
+      - name: Set up check results on the disposable pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FIXTURE: ${{ inputs.fixture }}
+        shell: python
+        run: |
+          import json, os, subprocess, time
+          e = os.environ
+          repo = e['GITHUB_REPOSITORY']
+          path = 'repos/' + repo + '/'
+          def api(route, method='GET', **fields):
+              args = ['gh', 'api', '-X', method, path + route]
+              if fields:
+                  args += ['--input', '-']
+              return json.loads(subprocess.check_output(args, input=json.dumps(fields) if fields else None, text=True))
+
+          fixture = 'bd-required-ci-merge-check-protected'
+          prs = api('pulls?head=GrantBirki:' + fixture + '&state=open&base=main')
+          assert len(prs) == 1
+          head = prs[0]['head']
+          assert head['ref'] == fixture and head['repo']['full_name'] == repo
+          sha = head['sha']
+          assert 'Exercise previews with 101 check results' in api('commits/' + sha)['commit']['message']
+          required, optional = 'test1', 'review-optional'
+          sample = e['FIXTURE']
+          runs = api(f'commits/{sha}/check-runs?per_page=100')
+          count = runs['total_count']
+          def create(name, conclusion):
+              r = api('check-runs', 'POST', name=name, head_sha=sha, status='completed', conclusion=conclusion)
+              assert (r['head_sha'], r['name'], r['conclusion'], r['app']['id']) == (sha, name, conclusion, 15368)
+          def update(name, conclusion):
+              res = api(f'commits/{sha}/check-runs?check_name={name}')
+              assert res['total_count'] == 1
+              row = res['check_runs'][0]
+              r = api('check-runs/' + str(row['id']), 'PATCH', status='completed', conclusion=conclusion)
+              assert (r['head_sha'], r['name'], r['conclusion'], r['app']['id']) == (sha, name, conclusion, 15368)
+
+          if sample == 'small':
+              assert count == 0, count
+              create(required, 'success')
+              create(optional, 'failure')
+          elif sample == 'fill':
+              assert count == 2, count
+              for i in range(3, 102):
+                  create(f'review-sample-{i:03}', ('success', 'skipped', 'neutral')[i % 3])
+                  time.sleep(1.25)
+          else:
+              assert count == 101 and sample in ('required-red', 'optional-red'), (sample, count)
+              failure, passing = (required, optional) if sample == 'required-red' else (optional, required)
+              update(failure, 'failure')
+              update(passing, 'success')
+          n = api(f'commits/{sha}/check-runs?per_page=1')['total_count']
+          assert n == (2 if sample == 'small' else 101), n
+          print(f'{n} check results for the disposable preview at {sha}.')
