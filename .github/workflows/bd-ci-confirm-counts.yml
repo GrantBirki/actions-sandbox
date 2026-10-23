@@ -1,0 +1,310 @@
+name: Disposable confirmation pagination
+run-name: Confirmation pages 22223ba5 / ${{ github.event.issue.number }} / ${{ github.event.comment.id }}
+on:
+  issue_comment:
+    types: [created]
+permissions: {}
+cache-mode: none
+jobs:
+  exercise:
+    if: >-
+      github.repository == 'GrantBirki/actions-sandbox' && github.ref == 'refs/heads/main' &&
+      github.event.issue.pull_request && github.event.issue.number == 279 &&
+      github.run_attempt == 1 && github.actor == 'GrantBirki' &&
+      github.event.comment.user.login == 'GrantBirki' && github.event.comment.author_association == 'OWNER' &&
+      contains(fromJSON('[".pages82-noop | masked",".pages82-noop | moving",".pages82-noop | optional"]'), github.event.comment.body)
+    concurrency: disposable-confirmation-pages-22223ba5
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write # Branch Deploy's temporary lock
+      pull-requests: write # comment and confirmation; no checkout
+      checks: write # only identified disposable fixture checks
+      deployments: read # no deployment can be created
+    env:
+      FIXTURE_PR: '279'
+      FIXTURE_SHA: 'bc78aa580e153b1772f45f799e00bd1bad1c8a2a'
+      CANDIDATE: '22223ba5fe5d0eb74da42d907ed918934b5b76f6'
+      PAGE_CASE: ${{ endsWith(github.event.comment.body, 'optional') && 'optional' || endsWith(github.event.comment.body, 'moving') && 'moving' || 'masked' }}
+    steps:
+      - name: Prepare identified check runs on the disposable PR
+        env:
+          PAGES_TOKEN: ${{ github.token }}
+        run: |
+          cat > "$RUNNER_TEMP/confirmation-pages.cjs" <<'FIXTURE'
+          // Temporary acceptance fixture. Only identified check runs on one disposable PR can change.
+          const assert = require('node:assert/strict')
+          const fs = require('node:fs')
+          const path = require('node:path')
+          const env = process.env
+          const nativeFetch = globalThis.fetch
+          const graphql = 'https://api.github.com/graphql'
+          const repo = 'GrantBirki/actions-sandbox'
+          const {CANDIDATE: action, FIXTURE_SHA: sha, FIXTURE_PR: pr, PAGE_CASE: scenario} = env
+          const dir = env.RUNNER_TEMP
+          const idsFile = path.join(dir, 'bd82-page-ids.json')
+          const trace = path.join(dir, 'bd82-page-observations.jsonl')
+          const selected = 'test1'
+          const other = 'zzz-confirmation-optional'
+          const last = 'zzzz-confirmation-tail'
+          const waiting = 'zzz-confirmation-still-running'
+          const names = [selected, other, last]
+
+          const marker = 'confirmation-page-fixture-' + pr + '-'
+          const opt = scenario === 'optional'
+          const moving = scenario === 'moving'
+          assert.match(sha, /^[a-f0-9]{40}$/)
+          assert.match(action, /^[a-f0-9]{40}$/)
+          assert.match(pr, /^[1-9][0-9]*$/)
+          assert.ok(['masked', 'moving', 'optional'].includes(scenario))
+          if (moving) names.push(waiting)
+          assert.equal(env.GITHUB_REPOSITORY, repo)
+          assert.equal(env.GITHUB_REF, 'refs/heads/main')
+          assert.equal(env.GITHUB_ACTOR, 'GrantBirki')
+          assert.equal(env.GITHUB_RUN_ATTEMPT, '1')
+
+          // All fixture requests are to fixed GitHub URLs. Never print headers, bodies of errors, or credentials.
+          async function api(target, method = 'GET', body) {
+            const url = target === graphql ? target : 'https://api.github.com/repos/' + repo + '/' + target
+            const response = await nativeFetch(url, {method, redirect: 'error',
+              headers: {authorization: 'Bearer ' + env.PAGES_TOKEN, 'content-type': 'application/json'},
+              ...(body && {body: JSON.stringify(body)})})
+            assert.ok(response.ok, method + ' ' + target + ' returned HTTP ' + response.status)
+            return response.json()
+          }
+          async function fixture() {
+            const p = await api('pulls/' + pr)
+            assert.deepEqual([p.state, p.base.ref, p.head.repo.full_name, p.head.sha, p.head.ref],
+              ['open', 'main', repo, sha, 'ci-confirm-' + action.slice(0, 8) + '-matrix-extra'])
+          }
+
+          let ids
+          async function update(id, fields) {
+            assert.ok(ids.includes(id), 'Will not update a check outside the fixture')
+            const r = await api('check-runs/' + id, 'PATCH', fields)
+            assert.equal(r.head_sha, sha)
+            assert.ok(r.external_id.startsWith(marker))
+          }
+          async function state(required, optional) {
+            const query = 'query($sha:String!, $pr:Int!) { repository(owner:"GrantBirki",name:"actions-sandbox") {' +
+              'object(expression:$sha) {... on Commit {oid statusCheckRollup {state contexts(first:10) {' +
+              'checkRunCountsByState {state count} statusContextCountsByState {state count} nodes {' +
+              '... on CheckRun {databaseId name conclusion status isRequired(pullRequestNumber:$pr) checkSuite {app {databaseId}}}' +
+              '}}}}}}}'
+            for (let i = 0; i < 24; i++) {
+              const json = await api(graphql, 'POST', {query, variables: {sha, pr: Number(pr)}})
+              assert.ok(!json.errors, 'GraphQL could not read check state')
+              const c = json.data.repository.object
+              assert.equal(c.oid, sha)
+              const r = c.statusCheckRollup
+              const nodes = r?.contexts.nodes
+              // GitHub may put a failing check first. Identify each check, not its position.
+              const pair = ids.map(id => nodes?.find(n => n.databaseId === id))
+              const expected = [required, optional, 'SUCCESS', null]
+              if (nodes?.length === names.length && (r.state === 'FAILURE' || (moving && r.state === 'PENDING')) &&
+                pair.every((n, i) => n?.name === names[i] && n.conclusion === expected[i] &&
+                  n.isRequired === (i === 0) && n.checkSuite.app.databaseId === 15368)) {
+                assert.deepEqual(observedCounts(r.contexts.checkRunCountsByState), expectedCounts(required === optional))
+                assert.deepEqual(observedCounts(r.contexts.statusContextCountsByState), {})
+                return
+              }
+              await new Promise(resolve => setTimeout(resolve, 2000))
+            }
+            throw new Error('GitHub did not show the expected fixture check identities, source, requirement and states')
+          }
+
+          async function prepare() {
+            await fixture()
+            const listing = await api('commits/' + sha + '/check-runs?filter=all&per_page=100')
+            let runs = listing.check_runs
+            assert.equal(runs.length, listing.total_count)
+            assert.ok(runs.every(r => r.head_sha === sha && r.external_id?.startsWith(marker)),
+              'Refusing to touch existing CI; use a dedicated fixture commit with [skip ci]')
+            for (const name of names.filter(name => !runs.some(run => run.name === name))) {
+              const settings = name === waiting ? {status: 'in_progress'} :
+                  {status: 'completed', conclusion: name === other ? 'failure' : 'success'}
+              runs.push(await api('check-runs', 'POST', {name, head_sha: sha, ...settings, external_id: marker + name}))
+            }
+            assert.equal(runs.length, names.length, 'Refusing to touch non-fixture checks')
+            ids = names.map(name => {
+              const found = runs.filter(r => r.name === name)
+              assert.equal(found.length, 1)
+              return found[0].id
+            })
+            for (const [i, id] of ids.slice(0,3).entries()) await update(id, {conclusion: i === 1 ? 'failure' : 'success'})
+            await state('SUCCESS', 'FAILURE')
+            fs.writeFileSync(idsFile, JSON.stringify(ids), {mode: 0o600})
+            console.log('GitHub confirmed test1 is required and green. The unrelated optional check is already red before admission.')
+          }
+
+          function observedCounts(counts) {
+            return Object.fromEntries(counts.filter(x => x.count).map(x => [x.state, x.count]))
+          }
+          function expectedCounts(bothRed) {
+            return {FAILURE: bothRed ? 2 : 1, SUCCESS: bothRed ? 1 : 2, ...(moving ? {IN_PROGRESS:1} : {})}
+          }
+
+          function instrument() {
+            ids = JSON.parse(fs.readFileSync(idsFile))
+            let requests = 0, cursor
+            // The action bundles its own HTTP client. Route it through a loopback adapter, not a mock GitHub.
+            // Bind only loopback, require the job token, and never follow redirects or take an upstream URL as input.
+            async function forward(req) {
+              const url = new URL(req.url, graphql)
+              assert.equal(url.origin, 'https://api.github.com')
+              assert.ok(url.pathname === '/graphql' || url.pathname === '/repos/' + repo ||
+                url.pathname.startsWith('/repos/' + repo + '/'), 'Unexpected API path: ' + url.pathname)
+              const headers = req.headers
+              assert.ok(env.PAGES_TOKEN && headers.authorization?.split(' ')[1] === env.PAGES_TOKEN, 'Unexpected runner request')
+              const body = []
+              for await (const chunk of req) body.push(chunk)
+              const sendHeaders = {}
+              for (const key of ['authorization','accept','content-type','user-agent','x-github-api-version','if-match']) {
+                if (headers[key]) sendHeaders[key] = headers[key]
+              }
+              const init = {method:req.method, headers:sendHeaders, redirect:'manual',
+                ...(body.length && {body: Buffer.concat(body).toString('utf8')})}
+              return request(String(url), init)
+            }
+            async function request(url, init) {
+              if (String(url) !== graphql || typeof init?.body !== 'string') return nativeFetch(url, init)
+              const body = JSON.parse(init.body)
+              const query = body.query.replace('contexts(first:100, after:$cursor)', 'contexts(first:2, after:$cursor)')
+              if (query === body.query) return nativeFetch(url, init)
+              const {variables: v} = body
+              assert.deepEqual([v.owner, v.name, v.number, v.cursor],
+                ['GrantBirki', 'actions-sandbox', Number(pr), requests % 2 ? cursor : null])
+              assert.equal(v.afterConfirmation, true)
+              requests++
+              assert.ok(requests <= 4)
+
+              if (requests === 2 && !opt) {
+                await update(ids[0], {conclusion: 'failure'})
+                await state('FAILURE', 'FAILURE')
+                if (moving) {
+                  await update(ids[1], {conclusion: 'success'})
+                  await state('FAILURE','SUCCESS')
+                }
+              }
+              // Only page size changes. GitHub supplies every response byte, including whole-connection counts.
+              for (const field of ['checkRunCountsByState', 'statusContextCountsByState']) {
+                assert.ok(query.includes(field), 'Candidate must request ' + field)
+              }
+              const response = await nativeFetch(url, {...init, body: JSON.stringify({...body, query})})
+              const page = (await response.clone().json()).data.node
+              assert.equal(page.oid, sha)
+              const {state: rollup, contexts} = page.statusCheckRollup
+              const {nodes, pageInfo} = contexts
+              const first = requests % 2 === 1, later = requests !== 1 && !opt
+              const sample = Object.fromEntries(nodes.map(n => {
+                const i = ids.indexOf(n.databaseId)
+                assert.notEqual(i, -1, 'GitHub returned an unexpected check ID')
+                const value = (i === 0 && later || i === 1 && !(moving && later)) ? 'FAILURE' : i === 3 ? null : 'SUCCESS'
+                assert.deepEqual([n.name, n.conclusion, n.isRequired], [names[i], value, i === 0])
+                return [n.name, n.conclusion ?? 'pending']
+              }))
+              assert.equal(nodes.length, first ? 2 : names.length - 2)
+              assert.equal(pageInfo.hasNextPage, first)
+              if (first) {cursor = pageInfo.endCursor; assert.ok(cursor)}
+              const counts = observedCounts(contexts.checkRunCountsByState)
+              assert.ok(rollup === 'FAILURE' || (moving && rollup === 'PENDING'))
+              assert.deepEqual(observedCounts(contexts.statusContextCountsByState), {})
+              assert.deepEqual(counts, expectedCounts(later && !moving))
+              const line = JSON.stringify({scenario, page: requests, githubRollup:rollup, githubCounts:counts, githubChecks:sample})
+              fs.appendFileSync(trace, line + '\n', {mode: 0o600})
+              console.log('PAGE_FROM_GITHUB ' + line)
+              return response
+            }
+            const http = require('node:http')
+            const server = http.createServer((req, res) => {
+              void (async () => {
+                const response = await forward(req)
+                const data = Buffer.from(await response.arrayBuffer())
+                const headers = Object.fromEntries([...response.headers].filter(([k]) =>
+                  !['connection','content-encoding','content-length','keep-alive','transfer-encoding','set-cookie'].includes(k)))
+                res.writeHead(response.status, headers)
+                res.end(data)
+              })().catch(e => {
+                // Do not log request headers or bodies. The four independently checked trace entries are mandatory.
+                console.error('Confirmation pagination fixture failed:', e.message)
+                res.writeHead(502)
+                res.end('Confirmation pagination fixture could not verify or forward this request')
+              })
+            })
+            const local = 'http://127.0.0.1:18982'
+            server.listen(18982, '127.0.0.1').unref()
+            env.GITHUB_API_URL = local
+            env.GITHUB_GRAPHQL_URL = local + '/graphql'
+          }
+          async function verify() {
+            const pages = fs.readFileSync(trace, 'utf8').trim().split('\n').map(line => JSON.parse(line))
+            const [a, b] = pages, reread = pages.length === 4
+            let observation
+            if (moving) {
+              assert.ok(reread || pages.length === 2)
+              observation = 'Failure moved from optional to required while another check stayed pending; stopped'
+            } else {
+              // Require the exact false-success case, not a changed rollup or duplicate that older versions already detected.
+              assert.deepEqual(Object.entries(a.githubChecks).sort(), [[selected,'SUCCESS'],[other,'FAILURE']].sort())
+              assert.deepEqual(b.githubChecks, {[last]:'SUCCESS'})
+              assert.equal(a.githubCounts.FAILURE, 1)
+              assert.equal(b.githubCounts.FAILURE, opt ? 1 : 2)
+              assert.equal(pages.length, opt ? 2 : 4)
+              if (reread) {
+                const final = Object.assign({}, ...pages.slice(2).map(p => p.githubChecks))
+                assert.deepEqual(final, {[selected]:'FAILURE', [other]:'FAILURE', [last]:'SUCCESS'})
+              }
+              observation = opt ? 'Stable required pass and optional failure; no unnecessary retry; allowed' :
+                'Optional was already red. Required failed after its page. Overall stayed red; whole-connection failures 1 to 2; reread and stopped.'
+            }
+            const rejected = !reread && moving ? 'UNAVAILABLE' : 'FAILURE'
+            const {OUTCOME, REASON, CI_STATE, CONTINUE, NOOP, DEPLOYMENT, SELECTED_SHA} = env
+            assert.deepEqual([OUTCOME, REASON, CI_STATE, CONTINUE || '', NOOP || '', DEPLOYMENT || '', SELECTED_SHA],
+              opt ? ['success','noop_ready','SUCCESS','true','true','',sha] : ['failure','prechecks_failed',rejected,'','','',sha])
+            if (moving) {
+              ids = JSON.parse(fs.readFileSync(idsFile))
+              await update(ids[3], {status: 'completed', conclusion:'neutral'})
+            }
+            console.log('PAGINATION_PROOF ' + JSON.stringify({action, sha, scenario, observation, result:REASON, ci:CI_STATE, pages}))
+          }
+          if (require.main !== module) instrument()
+          else (process.argv[2] === 'prepare' ? prepare() : verify()).catch(e => {
+            console.error(e.message); process.exitCode = 1
+          })
+          FIXTURE
+          node "$RUNNER_TEMP/confirmation-pages.cjs" prepare
+
+      - name: Exercise Branch Deploy with real GitHub pages
+        id: exercise
+        continue-on-error: true
+        uses: GrantBirki/branch-deploy@22223ba5fe5d0eb74da42d907ed918934b5b76f6
+        env:
+          PAGES_TOKEN: ${{ github.token }}
+          NODE_OPTIONS: --require=${{ runner.temp }}/confirmation-pages.cjs
+        with:
+          trigger: .pages82-deploy
+          noop_trigger: .pages82-noop
+          update_branch: disabled
+          environment: sandbox
+          environment_targets: sandbox
+          production_environments: sandbox
+          commit_verification: true
+          skip_reviews: sandbox
+          checks: required
+          sticky_locks: false
+          sticky_locks_for_noop: false
+          deployment_confirmation: true
+          deployment_confirmation_timeout: 360
+
+      - name: Verify both page reads and the candidate decision
+        if: always()
+        env:
+          PAGES_TOKEN: ${{ github.token }}
+          OUTCOME: ${{ steps.exercise.outcome }}
+          REASON: ${{ steps.exercise.outputs.reason_code }}
+          CI_STATE: ${{ steps.exercise.outputs.commit_status }}
+          CONTINUE: ${{ steps.exercise.outputs.continue }}
+          NOOP: ${{ steps.exercise.outputs.noop }}
+          DEPLOYMENT: ${{ steps.exercise.outputs.deployment_id }}
+          SELECTED_SHA: ${{ steps.exercise.outputs.sha }}
+        run: node "$RUNNER_TEMP/confirmation-pages.cjs" verify
