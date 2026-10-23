@@ -1,0 +1,127 @@
+name: Preview workflow compatibility
+run-name: Preview compatibility / ${{ github.event.comment.id }}
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions: {}
+cache-mode: none
+
+jobs:
+  lock-details:
+    if: >-
+      github.repository == 'GrantBirki/actions-sandbox' && github.run_attempt == 1 &&
+      github.event.issue.pull_request && github.event.issue.number == 283 &&
+      github.event.comment.user.login == 'GrantBirki' && github.event.comment.author_association == 'OWNER' &&
+      contains(fromJSON('[".sample-details",".sample-lock",".sample-lock --details",".sample-unlock"]'), github.event.comment.body)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+      pull-requests: write
+      deployments: read
+    steps:
+      - name: Read or manage the fixture lock
+        id: sample
+        uses: GrantBirki/branch-deploy@069d0deafe79f5fb2a92aa022e7564f66db22e15
+        with:
+          lock_trigger: .sample-lock
+          unlock_trigger: .sample-unlock
+          lock_info_alias: .sample-details
+          environment: review-lock
+          environment_targets: review-lock
+
+      - name: Check the lock operation result
+        shell: python
+        env:
+          COMMAND: ${{ github.event.comment.body }}
+          REASON: ${{ steps.sample.outputs.reason_code }}
+          DECISION: ${{ steps.sample.outputs.decision }}
+          CONTINUE: ${{ steps.sample.outputs.continue }}
+        run: |
+          import os
+          c, reason, decision, proceed = (os.environ[k] for k in ("COMMAND", "REASON", "DECISION", "CONTINUE"))
+          expected = {".sample-lock": "lock_acquired", ".sample-unlock": "unlock_completed"}.get(c, "lock_info_completed")
+          assert (decision, reason) == ("complete", expected), (decision, reason)
+          if expected == "lock_info_completed":
+              assert proceed == "false", proceed
+          print("PREVIEW_LOCK_CHECK", reason, "continue", repr(proceed))
+
+  start:
+    if: >-
+      github.repository == 'GrantBirki/actions-sandbox' && github.run_attempt == 1 &&
+      github.event.issue.pull_request && github.event.issue.number == 283 &&
+      github.event.comment.user.login == 'GrantBirki' && github.event.comment.author_association == 'OWNER' &&
+      github.event.comment.body == '.sample-preview'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      checks: read
+      contents: write
+      deployments: read
+      pull-requests: write
+      statuses: read
+    outputs:
+      continue: ${{ steps.sample.outputs.continue }}
+      context: ${{ steps.sample.outputs.context }}
+      noop: ${{ steps.sample.outputs.noop }}
+    steps:
+      - uses: GrantBirki/branch-deploy@acde94c3bc50cda1a3b38b56ee443737196335bd
+        id: sample
+        with:
+          noop_trigger: .sample-preview
+          stable_branch: bd-preview-checks-124-base
+          environment: review-preview
+          environment_targets: review-preview
+          update_branch: disabled
+          skip_completing: true
+
+  preview:
+    needs: start
+    if: >-
+      needs.start.outputs.continue == 'true' && needs.start.outputs.noop == 'true' &&
+      fromJSON(needs.start.outputs.context).run_attempt == github.run_attempt
+    runs-on: ubuntu-latest
+    permissions: {}
+    steps:
+      - name: Run a preview with no checkout or provider
+        run: echo 'Preview completed on its own runner.'
+
+  publish:
+    needs: [start, preview]
+    if: >-
+      needs.start.outputs.continue == 'true' && needs.start.outputs.noop == 'false' &&
+      fromJSON(needs.start.outputs.context).run_attempt == github.run_attempt
+    runs-on: ubuntu-latest
+    permissions: {}
+    steps:
+      - name: The fixture must never publish
+        run: exit 1
+
+  result:
+    needs: [start, preview, publish]
+    if: always() && needs.start.outputs.continue == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+      deployments: read
+      pull-requests: write
+    steps:
+      - name: Complete the preview on a fresh runner
+        id: sample
+        uses: GrantBirki/branch-deploy@acde94c3bc50cda1a3b38b56ee443737196335bd
+        with:
+          result_mode: true
+          context: ${{ needs.start.outputs.context }}
+          job_results: ${{ format('["{0}"]', needs.preview.result) }}
+
+      - name: Verify the preview, skipped publish, and result
+        env:
+          PREVIEW: ${{ needs.preview.result }}
+          PUBLISH: ${{ needs.publish.result }}
+          RESULT: ${{ steps.sample.outputs.deployment_result }}
+        run: |
+          test "$PREVIEW/$PUBLISH/$RESULT" = success/skipped/success
+          echo 'PREVIEW_JOB_CHECK preview=success publish=skipped result=success'
