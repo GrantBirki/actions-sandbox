@@ -1,1 +1,1 @@
-Disposable Branch Deploy confirmation acceptance data; no application code is deployed.
+Verify required CI and deploy before merge. Nothing is deployed outside the sandbox.
