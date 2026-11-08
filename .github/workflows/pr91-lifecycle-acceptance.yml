@@ -1,4 +1,5 @@
 name: PR 91 live acceptance
+run-name: PR91 live / ${{ github.event.comment.id }} / ${{ github.run_id }}
 
 on:
   issue_comment:
