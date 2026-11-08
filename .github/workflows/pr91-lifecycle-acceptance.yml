@@ -38,7 +38,6 @@ jobs:
         id: fixture
         env:
           GH_TOKEN: ${{ github.token }}
-          EVENT_PATH: ${{ github.event_path }}
           WORKFLOW_SHA: ${{ github.sha }}
           EXPECTED_PR: 295
           EXPECTED_FIXTURE_SHA: 3f4a9b53f3924642a54dadb14e814a05e4905ca1
@@ -58,7 +57,7 @@ jobs:
               '.review-state-start main | timeout': 'timeout',
               '.review-state-start main | invalid': 'invalid',
           }
-          with open(os.environ['EVENT_PATH'], encoding='utf-8') as source:
+          with open(os.environ['GITHUB_EVENT_PATH'], encoding='utf-8') as source:
               event = json.load(source)
           assert event['repository']['full_name'] == repo
           assert event['comment']['user']['login'] == 'GrantBirki'
