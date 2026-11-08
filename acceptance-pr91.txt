@@ -1,0 +1,1 @@
+Disposable fixture for Branch Deploy lifecycle acceptance.
