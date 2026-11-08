@@ -24,9 +24,9 @@ jobs:
       sha: ${{ steps.branch-deploy.outputs.sha }}
 
     steps:
-      - name: Run Branch Deploy v12.1.0
+      - name: Run Branch Deploy v12.4.2
         id: branch-deploy
-        uses: grantbirki/branch-deploy@a7a7ea40a15a79a036322c2924ab74f5eded702c # pin@v12.1.0
+        uses: grantbirki/branch-deploy@7173dcbb72a30da0148076fade87260ddd1b5e28 # pin@v12.4.2
         with:
           trigger: '.repro492'
           stable_branch: main
