@@ -1,0 +1,239 @@
+name: PR 91 live acceptance
+run-name: PR91 live / ${{ github.event.comment.id }} / ${{ github.run_id }}
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions: {}
+cache-mode: none
+
+concurrency:
+  group: pr91-live-${{ github.event.comment.id }}
+  cancel-in-progress: false
+
+jobs:
+  acceptance:
+    if: >-
+      github.repository == 'GrantBirki/actions-sandbox' &&
+      github.repository_owner == 'GrantBirki' &&
+      github.actor == 'GrantBirki' &&
+      github.event.comment.user.login == 'GrantBirki' &&
+      github.event.comment.author_association == 'OWNER' &&
+      github.run_attempt == '1' &&
+      github.event.issue.pull_request &&
+      github.event.issue.number == 295 &&
+      contains(fromJSON('[".review-state-start main",".review-state-preview | freshness",".review-state-preview | base-control",".review-state-start main | confirm",".review-state-start main | timeout",".review-state-start main | invalid"]'), github.event.comment.body)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      deployments: write
+      pull-requests: write
+      checks: read
+      statuses: read
+
+    steps:
+      - name: Verify the fixture and select the case
+        id: fixture
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_PATH: ${{ github.event_path }}
+          WORKFLOW_SHA: ${{ github.sha }}
+          EXPECTED_PR: 295
+          EXPECTED_FIXTURE_SHA: 3f4a9b53f3924642a54dadb14e814a05e4905ca1
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import urllib.parse
+          import urllib.request
+
+          repo = 'GrantBirki/actions-sandbox'
+          cases = {
+              '.review-state-start main': 'normal',
+              '.review-state-preview | freshness': 'freshness',
+              '.review-state-preview | base-control': 'base-control',
+              '.review-state-start main | confirm': 'confirm',
+              '.review-state-start main | timeout': 'timeout',
+              '.review-state-start main | invalid': 'invalid',
+          }
+          with open(os.environ['EVENT_PATH'], encoding='utf-8') as source:
+              event = json.load(source)
+          assert event['repository']['full_name'] == repo
+          assert event['comment']['user']['login'] == 'GrantBirki'
+          assert event['comment']['author_association'] == 'OWNER'
+          number = int(os.environ['EXPECTED_PR'])
+          assert event['issue']['number'] == number
+          case = cases[event['comment']['body']]
+          environment = 'pr91-live-' + case
+
+          def request(path, body=None):
+              headers = {
+                  'Accept': 'application/vnd.github+json',
+                  'Authorization': 'Bearer ' + os.environ['GH_TOKEN'],
+                  'X-GitHub-Api-Version': '2022-11-28',
+              }
+              data = None if body is None else json.dumps(body).encode()
+              if data is not None:
+                  headers['Content-Type'] = 'application/json'
+              query = urllib.request.Request('https://api.github.com' + path, data=data, headers=headers)
+              with urllib.request.urlopen(query, timeout=30) as response:
+                  return json.load(response)
+
+          pull = request(f'/repos/{repo}/pulls/{number}')
+          assert pull['state'] == 'open' and pull['draft'] is False
+          assert pull['head']['ref'] == 'bd-pr91-fixture'
+          assert pull['head']['sha'] == os.environ['EXPECTED_FIXTURE_SHA']
+          assert pull['head']['repo']['full_name'] == repo
+          assert pull['base']['ref'] == 'main'
+          assert pull['base']['repo']['full_name'] == repo
+          main = request(f'/repos/{repo}/branches/main')['commit']['sha']
+          assert main == os.environ['WORKFLOW_SHA'], 'main moved after this workflow event'
+          stable_branch = 'bd-pr91-stable' if case in ('freshness', 'base-control') else 'main'
+          observed = {
+              'case': case,
+              'repository': repo,
+              'pull_request': number,
+              'fixture_sha': pull['head']['sha'],
+              'fixture_ref': pull['head']['ref'],
+              'base_ref': pull['base']['ref'],
+              'workflow_sha': os.environ['WORKFLOW_SHA'],
+              'main_sha': main,
+              'action_sha': 'af16e4d93af0aa234e9d224f6c4de8cb8e30b3b2',
+              'environment': environment,
+              'stable_branch': stable_branch,
+          }
+          if case in ('freshness', 'base-control'):
+              stable = request(f'/repos/{repo}/branches/bd-pr91-stable')['commit']['sha']
+              graph = request('/graphql', {
+                  'query': 'query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest(number:$number){mergeStateStatus headRefOid baseRefOid}}}',
+                  'variables': {'owner': 'GrantBirki', 'name': 'actions-sandbox', 'number': number},
+              })
+              assert not graph.get('errors'), graph.get('errors')
+              pr = graph['data']['repository']['pullRequest']
+              assert pr['headRefOid'] == pull['head']['sha']
+              assert pr['baseRefOid'] == main
+              assert pr['mergeStateStatus'] == 'BEHIND', pr
+              stable_comparison = request(f"/repos/{repo}/compare/{stable}...{pull['head']['sha']}")
+              target_comparison = request(f"/repos/{repo}/compare/{main}...{pull['head']['sha']}")
+              assert stable_comparison['behind_by'] == 0, stable_comparison['behind_by']
+              assert target_comparison['behind_by'] > 0, target_comparison['behind_by']
+              observed.update({
+                  'stable_sha': stable,
+                  'merge_state_status': pr['mergeStateStatus'],
+                  'stable_behind_by': stable_comparison['behind_by'],
+                  'target_behind_by': target_comparison['behind_by'],
+              })
+          print(json.dumps({'fixture': observed}, sort_keys=True))
+          values = {
+              'case': case,
+              'environment': environment,
+              'stable_branch': stable_branch,
+              'outdated_mode': 'pr_base' if case == 'base-control' else 'default_branch',
+              'confirmation': 'true' if case in ('confirm', 'timeout') else 'false',
+              'confirmation_timeout': 'invalid' if case == 'invalid' else ('15' if case == 'timeout' else ('180' if case == 'confirm' else '60')),
+              'expected_sha': pull['head']['sha'] if case in ('freshness', 'base-control') else main,
+          }
+          with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as output:
+              for key, value in values.items():
+                  output.write(f'{key}={value}\n')
+          PY
+
+      - name: Run PR91 candidate
+        id: candidate
+        continue-on-error: true
+        uses: GrantBirki/branch-deploy@af16e4d93af0aa234e9d224f6c4de8cb8e30b3b2
+        with:
+          github_token: ${{ github.token }}
+          trigger: .review-state-start
+          noop_trigger: .review-state-preview
+          lock_trigger: .review-state-lock
+          unlock_trigger: .review-state-unlock
+          help_trigger: .review-state-help
+          lock_info_alias: .review-state-info
+          environment: ${{ steps.fixture.outputs.environment }}
+          environment_targets: ${{ steps.fixture.outputs.environment }}
+          production_environments: ''
+          skip_ci: ${{ steps.fixture.outputs.environment }}
+          skip_reviews: ${{ steps.fixture.outputs.environment }}
+          commit_verification: 'false'
+          stable_branch: ${{ steps.fixture.outputs.stable_branch }}
+          update_branch: warn
+          outdated_mode: ${{ steps.fixture.outputs.outdated_mode }}
+          allow_non_default_target_branch_deployments: 'true'
+          deployment_confirmation: ${{ steps.fixture.outputs.confirmation }}
+          deployment_confirmation_timeout: ${{ steps.fixture.outputs.confirmation_timeout }}
+          deploy_message_path: ''
+          sticky_locks: 'false'
+          sticky_locks_for_noop: 'false'
+
+      - name: Assert the main action outcome
+        if: always() && steps.fixture.outcome == 'success'
+        env:
+          CASE: ${{ steps.fixture.outputs.case }}
+          EXPECTED_SHA: ${{ steps.fixture.outputs.expected_sha }}
+          EXPECTED_ENVIRONMENT: ${{ steps.fixture.outputs.environment }}
+          ACTION_OUTCOME: ${{ steps.candidate.outcome }}
+          ACTION_OUTPUTS: ${{ toJSON(steps.candidate.outputs) }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+
+          case = os.environ['CASE']
+          outputs = json.loads(os.environ['ACTION_OUTPUTS'])
+          expected = {
+              'normal': ('success', 'deployment_ready', 'continue'),
+              'freshness': ('success', 'noop_ready', 'continue'),
+              'base-control': ('failure', 'prechecks_failed', 'failure'),
+              'confirm': ('success', 'deployment_ready', 'continue'),
+              'timeout': ('failure', 'confirmation_timed_out', 'failure'),
+              'invalid': ('failure', 'unexpected_error', 'failure'),
+          }[case]
+          assert os.environ['ACTION_OUTCOME'] == expected[0], (case, os.environ['ACTION_OUTCOME'])
+          assert outputs.get('reason_code') == expected[1], outputs
+          assert outputs.get('decision') == expected[2], outputs
+          ready = case in ('normal', 'freshness', 'confirm')
+          assert (outputs.get('continue') == 'true') is ready, outputs
+          if case not in ('invalid', 'base-control'):
+              assert outputs.get('sha') == os.environ['EXPECTED_SHA'], outputs
+          if case != 'invalid':
+              assert outputs.get('environment') == os.environ['EXPECTED_ENVIRONMENT'], outputs
+          if case in ('freshness', 'base-control'):
+              assert outputs.get('merge_state_status') == 'BEHIND', outputs
+              assert outputs.get('is_outdated') == ('true' if case == 'base-control' else 'false'), outputs
+          if ready:
+              assert outputs.get('noop') == ('true' if case == 'freshness' else 'false'), outputs
+              assert outputs.get('ref') == ('bd-pr91-fixture' if case == 'freshness' else 'main'), outputs
+          if case in ('normal', 'confirm'):
+              assert str(outputs.get('deployment_id', '')).isdigit(), outputs
+          else:
+              assert outputs.get('deployment_id', '') == '', outputs
+          observed = {key: outputs.get(key) for key in ('continue', 'decision', 'reason_code', 'sha', 'ref', 'environment', 'noop', 'is_outdated', 'merge_state_status', 'deployment_id', 'result')}
+          print('PR91_OBSERVATION ' + json.dumps({'case': case, 'action_outcome': os.environ['ACTION_OUTCOME'], **observed}, sort_keys=True))
+          PY
+
+      - name: Check out the selected immutable commit
+        if: steps.candidate.outputs.continue == 'true'
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: ${{ steps.candidate.outputs.sha }}
+          persist-credentials: false
+
+      - name: Run the harmless consumer
+        if: steps.candidate.outputs.continue == 'true'
+        env:
+          SELECTED_SHA: ${{ steps.candidate.outputs.sha }}
+          CASE: ${{ steps.fixture.outputs.case }}
+          ENVIRONMENT: ${{ steps.fixture.outputs.environment }}
+        run: |
+          selected_checkout_sha=$(git rev-parse HEAD)
+          test "$selected_checkout_sha" = "$SELECTED_SHA"
+          printf 'LIVE_CONSUMER_CHECKOUT %s\n' "$selected_checkout_sha"
+          export SELECTED_CHECKOUT_SHA="$selected_checkout_sha"
+          python3 - <<'PY'
+          import json
+          import os
+          print(json.dumps({'consumer': 'harmless acceptance workload', 'case': os.environ['CASE'], 'environment': os.environ['ENVIRONMENT'], 'selected_action_sha': 'af16e4d93af0aa234e9d224f6c4de8cb8e30b3b2', 'selected_checkout_sha': os.environ['SELECTED_CHECKOUT_SHA']}, sort_keys=True))
+          PY
