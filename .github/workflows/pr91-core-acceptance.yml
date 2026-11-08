@@ -1,0 +1,281 @@
+name: PR91 core live acceptance
+run-name: PR91 core / ${{ github.event.comment.id }} / ${{ github.run_id }}
+'on':
+  issue_comment:
+    types:
+      - created
+permissions: {}
+cache-mode: none
+concurrency:
+  group: pr91-core-${{ github.event.comment.id }}
+  cancel-in-progress: false
+jobs:
+  core:
+    if: ${{ github.repository == 'GrantBirki/actions-sandbox' && github.actor == 'GrantBirki' && github.event.issue.pull_request && github.event.issue.number == 299 && github.event.comment.user.login == 'GrantBirki' && github.event.comment.author_association == 'OWNER' && (github.run_attempt == '1' || (github.run_attempt == '2' && github.event.comment.body == '.review-core-help')) && contains(fromJSON('[".review-core-help",".review-core-info",".review-core-lock --reason initial",".review-core-lock --reason repeat",".review-core-start main",".review-core-preview main | disabled",".review-core-merge | current",".review-core-unlock",".review-core-merge | empty",".review-core-start main | failure"]'), github.event.comment.body) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    continue-on-error: ${{ github.event.comment.body == '.review-core-start main | failure' }}
+    permissions:
+      contents: write
+      deployments: write
+      pull-requests: write
+      checks: read
+      statuses: read
+    steps:
+      - name: Verify disposable core fixture
+        id: fixture
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: python
+        run: |
+          import json, os, subprocess
+          commands = {'.review-core-help': 'help', '.review-core-info': 'info', '.review-core-lock --reason initial': 'lock', '.review-core-lock --reason repeat': 'lock-repeat', '.review-core-start main': 'sticky-deploy', '.review-core-preview main | disabled': 'disabled', '.review-core-merge | current': 'merge-hit', '.review-core-unlock': 'unlock', '.review-core-merge | empty': 'merge-empty', '.review-core-start main | failure': 'consumer-failure', '.review-core-start main | result-success': 'result-success', '.review-core-start main | result-failure': 'result-failure'}
+          with open(os.environ['GITHUB_EVENT_PATH'], encoding='utf-8') as source:
+              event = json.load(source)
+          assert event['repository']['full_name'] == 'GrantBirki/actions-sandbox'
+          assert event['issue']['number'] == 299
+          assert event['comment']['user']['login'] == 'GrantBirki' and event['comment']['author_association'] == 'OWNER'
+          case = commands[event['comment']['body']]
+          attempt = int(os.environ['GITHUB_RUN_ATTEMPT'])
+          assert attempt == 1 or (attempt == 2 and case == 'help')
+          if attempt == 2: case = 'rerun'
+          def api(route):
+              return json.loads(subprocess.check_output(['gh','api','repos/GrantBirki/actions-sandbox/'+route], text=True))
+          pr = api('pulls/299')
+          assert pr['state'] == 'open' and pr['head']['ref'] == 'bd-pr91-core-fixture'
+          assert pr['head']['sha'] == '1e984a5a9ffe00be588db4c6edcfedba6c1d799a' and pr['base']['ref'] == 'main'
+          assert pr['head']['repo']['full_name'] == pr['base']['repo']['full_name'] == 'GrantBirki/actions-sandbox'
+          main = api('branches/main')['commit']['sha']
+          assert main == os.environ['GITHUB_SHA']
+          environment = 'pr91-core-' + (case if case in ['merge-empty','consumer-failure','result-success','result-failure'] else 'sticky')
+          values = {'case':case,'environment':environment,'expected_sha':main,'merge_mode':str(case.startswith('merge-')).lower(),'disable_lock':str(case=='disabled').lower()}
+          with open(os.environ['GITHUB_OUTPUT'],'a') as out:
+              for key,value in values.items():print(key+'='+value,file=out)
+          print('CORE_FIXTURE '+json.dumps(values,sort_keys=True))
+      - name: Run exact core candidate
+        id: candidate
+        continue-on-error: true
+        uses: GrantBirki/branch-deploy@af16e4d93af0aa234e9d224f6c4de8cb8e30b3b2
+        with:
+          github_token: ${{ github.token }}
+          trigger: .review-core-start
+          noop_trigger: .review-core-preview
+          help_trigger: .review-core-help
+          lock_trigger: .review-core-lock
+          unlock_trigger: .review-core-unlock
+          lock_info_alias: .review-core-info
+          environment: ${{ steps.fixture.outputs.environment }}
+          environment_targets: ${{ steps.fixture.outputs.environment }}
+          production_environments: ''
+          skip_ci: ${{ steps.fixture.outputs.environment }}
+          skip_reviews: ${{ steps.fixture.outputs.environment }}
+          stable_branch: main
+          update_branch: disabled
+          commit_verification: 'false'
+          sticky_locks: 'false'
+          sticky_locks_for_noop: 'false'
+          deploy_message_path: ''
+          merge_deploy_mode: ${{ steps.fixture.outputs.merge_mode }}
+          disable_lock: ${{ steps.fixture.outputs.disable_lock }}
+      - name: Assert core outcome
+        if: ${{ always() && steps.fixture.outcome == 'success' }}
+        env:
+          CASE: ${{ steps.fixture.outputs.case }}
+          OUTPUTS: ${{ toJSON(steps.candidate.outputs) }}
+          OUTCOME: ${{ steps.candidate.outcome }}
+          EXPECTED_SHA: ${{ steps.fixture.outputs.expected_sha }}
+        shell: python
+        run: |
+          import json, os
+          case=os.environ['CASE'];out=json.loads(os.environ['OUTPUTS']);outcome=os.environ['OUTCOME']
+          expected={
+           'help':('help_completed','complete','success'),'info':('lock_info_completed','complete','success'),
+           'lock':('lock_acquired','complete','success'),'lock-repeat':('lock_already_owned','complete','success'),
+           'sticky-deploy':('deployment_ready','continue','success'),'disabled':('noop_ready','continue','success'),
+           'merge-hit':('merge_deploy_not_required','stop','success'),'merge-empty':('merge_deploy_required','continue','success'),
+           'unlock':('unlock_completed','complete','success'),'consumer-failure':('deployment_ready','continue','success'),
+           'rerun':('rerun_not_allowed','failure','failure')
+          }[case]
+          assert (out.get('reason_code'),out.get('decision'),outcome)==expected,(case,out,outcome)
+          ready=case in ['sticky-deploy','disabled','consumer-failure','merge-empty']
+          assert (out.get('continue')=='true')==ready,out
+          if case in ['sticky-deploy','disabled','consumer-failure','merge-empty']:assert out.get('sha')==os.environ['EXPECTED_SHA'],out
+          if case in ['sticky-deploy','consumer-failure']:assert str(out.get('deployment_id','')).isdigit(),out
+          else:assert not out.get('deployment_id'),out
+          keys='decision reason_code continue deployment_id sha ref environment noop'.split()
+          print('CORE_OBSERVATION '+json.dumps({'case':case,'outcome':outcome,**{k:out.get(k,'') for k in keys}},sort_keys=True))
+      - name: Check out selected core SHA
+        if: ${{ steps.candidate.outputs.continue == 'true' && contains(fromJSON('["sticky-deploy","disabled","consumer-failure"]'), steps.fixture.outputs.case) }}
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: ${{ steps.candidate.outputs.sha }}
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Harmless core consumer
+        if: ${{ steps.candidate.outputs.continue == 'true' && contains(fromJSON('["sticky-deploy","disabled","consumer-failure"]'), steps.fixture.outputs.case) }}
+        env:
+          EXPECTED_SHA: ${{ steps.candidate.outputs.sha }}
+          CASE: ${{ steps.fixture.outputs.case }}
+        run: |
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+          printf 'CORE_CHECKOUT %s\n' "$EXPECTED_SHA"
+          if [ "$CASE" = consumer-failure ]; then
+            echo 'Expected fixture consumer failure'
+            exit 1
+          fi
+          echo 'Harmless core consumer completed'
+  start:
+    if: ${{ github.repository == 'GrantBirki/actions-sandbox' && github.actor == 'GrantBirki' && github.event.issue.pull_request && github.event.issue.number == 299 && github.event.comment.user.login == 'GrantBirki' && github.event.comment.author_association == 'OWNER' && github.run_attempt == '1' && contains(fromJSON('[".review-core-start main | result-success",".review-core-start main | result-failure"]'), github.event.comment.body) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    permissions:
+      contents: write
+      deployments: write
+      pull-requests: write
+      checks: read
+      statuses: read
+    outputs:
+      continue: ${{ steps.candidate.outputs.continue }}
+      context: ${{ steps.candidate.outputs.context }}
+      sha: ${{ steps.candidate.outputs.sha }}
+      case: ${{ steps.fixture.outputs.case }}
+      environment: ${{ steps.fixture.outputs.environment }}
+    steps:
+      - name: Verify disposable core fixture
+        id: fixture
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: python
+        run: |
+          import json, os, subprocess
+          commands = {'.review-core-help': 'help', '.review-core-info': 'info', '.review-core-lock --reason initial': 'lock', '.review-core-lock --reason repeat': 'lock-repeat', '.review-core-start main': 'sticky-deploy', '.review-core-preview main | disabled': 'disabled', '.review-core-merge | current': 'merge-hit', '.review-core-unlock': 'unlock', '.review-core-merge | empty': 'merge-empty', '.review-core-start main | failure': 'consumer-failure', '.review-core-start main | result-success': 'result-success', '.review-core-start main | result-failure': 'result-failure'}
+          with open(os.environ['GITHUB_EVENT_PATH'], encoding='utf-8') as source:
+              event = json.load(source)
+          assert event['repository']['full_name'] == 'GrantBirki/actions-sandbox'
+          assert event['issue']['number'] == 299
+          assert event['comment']['user']['login'] == 'GrantBirki' and event['comment']['author_association'] == 'OWNER'
+          case = commands[event['comment']['body']]
+          attempt = int(os.environ['GITHUB_RUN_ATTEMPT'])
+          assert attempt == 1 or (attempt == 2 and case == 'help')
+          if attempt == 2: case = 'rerun'
+          def api(route):
+              return json.loads(subprocess.check_output(['gh','api','repos/GrantBirki/actions-sandbox/'+route], text=True))
+          pr = api('pulls/299')
+          assert pr['state'] == 'open' and pr['head']['ref'] == 'bd-pr91-core-fixture'
+          assert pr['head']['sha'] == '1e984a5a9ffe00be588db4c6edcfedba6c1d799a' and pr['base']['ref'] == 'main'
+          assert pr['head']['repo']['full_name'] == pr['base']['repo']['full_name'] == 'GrantBirki/actions-sandbox'
+          main = api('branches/main')['commit']['sha']
+          assert main == os.environ['GITHUB_SHA']
+          environment = 'pr91-core-' + (case if case in ['merge-empty','consumer-failure','result-success','result-failure'] else 'sticky')
+          values = {'case':case,'environment':environment,'expected_sha':main,'merge_mode':str(case.startswith('merge-')).lower(),'disable_lock':str(case=='disabled').lower()}
+          with open(os.environ['GITHUB_OUTPUT'],'a') as out:
+              for key,value in values.items():print(key+'='+value,file=out)
+          print('CORE_FIXTURE '+json.dumps(values,sort_keys=True))
+      - name: Start exact core candidate
+        id: candidate
+        uses: GrantBirki/branch-deploy@af16e4d93af0aa234e9d224f6c4de8cb8e30b3b2
+        with:
+          github_token: ${{ github.token }}
+          trigger: .review-core-start
+          noop_trigger: .review-core-preview
+          help_trigger: .review-core-help
+          lock_trigger: .review-core-lock
+          unlock_trigger: .review-core-unlock
+          lock_info_alias: .review-core-info
+          environment: ${{ steps.fixture.outputs.environment }}
+          environment_targets: ${{ steps.fixture.outputs.environment }}
+          production_environments: ''
+          skip_ci: ${{ steps.fixture.outputs.environment }}
+          skip_reviews: ${{ steps.fixture.outputs.environment }}
+          stable_branch: main
+          update_branch: disabled
+          commit_verification: 'false'
+          sticky_locks: 'false'
+          sticky_locks_for_noop: 'false'
+          deploy_message_path: ''
+          skip_completing: 'true'
+      - name: Assert deferred start
+        env:
+          OUTPUTS: ${{ toJSON(steps.candidate.outputs) }}
+          OUTCOME: ${{ steps.candidate.outcome }}
+          EXPECTED_SHA: ${{ steps.fixture.outputs.expected_sha }}
+        shell: python
+        run: |
+          import json, os
+          out=json.loads(os.environ['OUTPUTS']);ctx=json.loads(out['context'])
+          assert os.environ['OUTCOME']=='success' and out['continue']=='true' and out['reason_code']=='deployment_ready',out
+          assert out['sha']==os.environ['EXPECTED_SHA']==ctx['sha']
+          assert ctx['run_attempt']==int(os.environ['GITHUB_RUN_ATTEMPT']) and ctx['run_id']==int(os.environ['GITHUB_RUN_ID'])
+          assert ctx['repository']=='GrantBirki/actions-sandbox' and ctx['lock_ref_sha']
+          print('CORE_START '+json.dumps({k:out[k] for k in ['continue','sha','deployment_id','environment','reason_code']},sort_keys=True))
+  worker:
+    needs: start
+    if: ${{ needs.start.outputs.continue == 'true' && fromJSON(needs.start.outputs.context).run_attempt == github.run_attempt }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Check out deferred selected SHA
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: ${{ needs.start.outputs.sha }}
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Harmless deferred worker
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CONTEXT: ${{ needs.start.outputs.context }}
+          EXPECTED_SHA: ${{ needs.start.outputs.sha }}
+          CASE: ${{ needs.start.outputs.case }}
+        shell: python
+        run: |
+          import json, os, subprocess
+          ctx=json.loads(os.environ['CONTEXT'])
+          sha=subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip()
+          assert sha==ctx['sha']==os.environ['EXPECTED_SHA']
+          route='repos/GrantBirki/actions-sandbox/git/ref/heads/'+ctx['environment']+'-branch-deploy-lock'
+          ref=json.loads(subprocess.check_output(['gh','api',route],text=True))
+          assert ref['object']['sha']==ctx['lock_ref_sha']
+          print('CORE_WORKER '+json.dumps({'case':os.environ['CASE'],'sha':sha,'lock_sha':ref['object']['sha']},sort_keys=True),flush=True)
+          if os.environ['CASE']=='result-failure':
+              print('Expected fixture worker failure',flush=True)
+              raise SystemExit(1)
+  result:
+    needs:
+      - start
+      - worker
+    if: ${{ always() && needs.start.outputs.continue == 'true' && fromJSON(needs.start.outputs.context).run_attempt == github.run_attempt }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    permissions:
+      contents: write
+      deployments: write
+      pull-requests: write
+      checks: read
+      statuses: read
+    steps:
+      - name: Complete exact core candidate
+        id: candidate
+        continue-on-error: true
+        uses: GrantBirki/branch-deploy@af16e4d93af0aa234e9d224f6c4de8cb8e30b3b2
+        with:
+          github_token: ${{ github.token }}
+          result_mode: 'true'
+          context: ${{ needs.start.outputs.context }}
+          job_results: ${{ format('["{0}"]', needs.worker.result) }}
+      - name: Assert deferred completion
+        env:
+          CASE: ${{ needs.start.outputs.case }}
+          WORKER_RESULT: ${{ needs.worker.result }}
+          OUTPUTS: ${{ toJSON(steps.candidate.outputs) }}
+          OUTCOME: ${{ steps.candidate.outcome }}
+        shell: python
+        run: |
+          import json,os
+          case=os.environ['CASE'];out=json.loads(os.environ['OUTPUTS']);success=case=='result-success'
+          expected='success' if success else 'failure'
+          assert os.environ['WORKER_RESULT']==expected
+          assert out['deployment_result']==expected,out
+          assert (out['reason_code'],out['decision'],os.environ['OUTCOME'])==(('result_completed','complete','success') if success else ('result_non_success','failure','failure')),out
+          print('CORE_RESULT '+json.dumps({'case':case,'worker_result':os.environ['WORKER_RESULT'],'outcome':os.environ['OUTCOME'],**{k:out.get(k,'') for k in ['deployment_result','reason_code','decision','deployment_id','sha','environment']}},sort_keys=True))
