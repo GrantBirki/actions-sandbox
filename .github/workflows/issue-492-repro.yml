@@ -26,7 +26,7 @@ jobs:
     steps:
       - name: Run Branch Deploy v12.4.2
         id: branch-deploy
-        uses: grantbirki/branch-deploy@7173dcbb72a30da0148076fade87260ddd1b5e28 # pin@v12.4.2
+        uses: grantbirki/branch-deploy@a589e8d69ed275ec1e1dbfa8de6e3429f077b08b # pin@v12.4.3
         with:
           trigger: '.repro492'
           stable_branch: main
