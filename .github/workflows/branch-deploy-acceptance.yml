@@ -1,0 +1,145 @@
+name: Branch Deploy v12.4.3 acceptance
+run-name: Branch Deploy v12.4.3 / ${{ github.event.comment.id || github.sha }}
+
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/branch-deploy-acceptance.yml]
+  issue_comment:
+    types: [created]
+
+permissions: {}
+cache-mode: none
+
+jobs:
+  merge-deploy:
+    if: github.repository == 'GrantBirki/actions-sandbox' && github.actor == 'GrantBirki' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      deployments: write
+
+    steps:
+      - name: Check the deployment for current main
+        id: merge
+        uses: grantbirki/branch-deploy@a589e8d69ed275ec1e1dbfa8de6e3429f077b08b # pin@v12.4.3
+        with:
+          merge_deploy_mode: 'true'
+          environment: v12-4-3-merge-acceptance
+
+      - name: Assert the merge decision
+        env:
+          DECISION: ${{ steps.merge.outputs.reason_code }}
+          SHOULD_DEPLOY: ${{ steps.merge.outputs.continue }}
+          SELECTED_SHA: ${{ steps.merge.outputs.sha }}
+        run: |
+          test "$GITHUB_REF_PROTECTED" = true
+          case "$GITHUB_RUN_ATTEMPT" in
+            1|2)
+              test "$DECISION" = merge_deploy_required
+              test "$SHOULD_DEPLOY" = true
+              test "$SELECTED_SHA" = "$GITHUB_SHA"
+              ;;
+            *)
+              test "$DECISION" = merge_deploy_not_required
+              test "$SHOULD_DEPLOY" = false
+              ;;
+          esac
+          printf 'attempt=%s decision=%s target=%s\n' "$GITHUB_RUN_ATTEMPT" "$DECISION" "$SELECTED_SHA"
+
+      - name: Check out the revision selected for reconciliation
+        if: github.run_attempt == '2' && steps.merge.outputs.continue == 'true'
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # pin@v7.0.0
+        with:
+          ref: ${{ steps.merge.outputs.sha }}
+          persist-credentials: false
+
+      - name: Verify the harmless checkout
+        if: github.run_attempt == '2' && steps.merge.outputs.continue == 'true'
+        run: |
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test -f README.md
+
+      - name: Record the simulated deployment
+        if: steps.merge.outputs.continue == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PREVIOUS_SHA: ${{ github.event.before }}
+          DEPLOYMENT_ENV: v12-4-3-merge-acceptance
+        run: |
+          # Seed an active deployment for the previous tree on the first run.
+          deployed_sha="$GITHUB_SHA"
+          if [[ "$GITHUB_RUN_ATTEMPT" == 1 ]]; then
+            deployed_sha="$PREVIOUS_SHA"
+          fi
+          jq -n --arg ref "$deployed_sha" --arg environment "$DEPLOYMENT_ENV" \
+            '{ref:$ref,environment:$environment,auto_merge:false,required_contexts:[],production_environment:false,payload:{type:"branch-deploy",sha:$ref}}' \
+            | gh api --method POST "repos/$GITHUB_REPOSITORY/deployments" --input - --jq .id > "$RUNNER_TEMP/deployment-id"
+          deployment_id="$(cat "$RUNNER_TEMP/deployment-id")"
+          [[ "$deployment_id" =~ ^[0-9]+$ ]]
+          gh api --method POST "repos/$GITHUB_REPOSITORY/deployments/$deployment_id/statuses" \
+            -f state=success --jq '{id,state,environment}'
+
+  issueops:
+    if: >-
+      github.repository == 'GrantBirki/actions-sandbox' &&
+      github.event_name == 'issue_comment' &&
+      github.actor == 'GrantBirki' &&
+      github.event.comment.user.login == 'GrantBirki' &&
+      github.event.comment.author_association == 'OWNER' &&
+      github.event.issue.pull_request &&
+      github.event.issue.number == 179 &&
+      contains(fromJSON('[".v1243-noop main",".v1243-deploy main"]'), github.event.comment.body)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+      deployments: write
+      pull-requests: write
+      checks: read
+      statuses: read
+
+    steps:
+      - name: Run the sandbox command
+        id: issueops
+        uses: grantbirki/branch-deploy@a589e8d69ed275ec1e1dbfa8de6e3429f077b08b # pin@v12.4.3
+        with:
+          trigger: .v1243-deploy
+          noop_trigger: .v1243-noop
+          environment: v12-4-3-issueops-acceptance
+          environment_targets: v12-4-3-issueops-acceptance
+          production_environments: ''
+          skip_ci: v12-4-3-issueops-acceptance
+          skip_reviews: v12-4-3-issueops-acceptance
+          stable_branch: main
+          update_branch: disabled
+          commit_verification: 'true'
+          deploy_message_path: ''
+          sticky_locks: 'false'
+          sticky_locks_for_noop: 'false'
+
+      - name: Assert the command result
+        env:
+          OUTPUTS: ${{ toJSON(steps.issueops.outputs) }}
+          EXPECTED_NOOP: ${{ github.event.comment.body == '.v1243-noop main' }}
+        run: |
+          jq -e --arg sha "$GITHUB_SHA" --arg noop "$EXPECTED_NOOP" '
+            .continue == "true" and .sha == $sha and .ref == "main" and .noop == $noop and
+            .environment == "v12-4-3-issueops-acceptance" and
+            (if $noop == "true" then .reason_code == "noop_ready" and (.deployment_id // "") == ""
+             else .reason_code == "deployment_ready" and (.deployment_id | test("^[0-9]+$")) end)
+          ' <<< "$OUTPUTS"
+
+      - name: Check out the selected immutable commit
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # pin@v7.0.0
+        with:
+          ref: ${{ steps.issueops.outputs.sha }}
+          persist-credentials: false
+
+      - name: Verify the harmless checkout
+        env:
+          SELECTED_SHA: ${{ steps.issueops.outputs.sha }}
+        run: |
+          test "$(git rev-parse HEAD)" = "$SELECTED_SHA"
+          test -f README.md
