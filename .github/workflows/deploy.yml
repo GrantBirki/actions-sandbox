@@ -14,7 +14,7 @@ jobs:
     steps:
       # Call the branch-deploy Action - name it something else if you want (I did here for clarity)
       - name: deployment check
-        uses: grantbirki/branch-deploy@7173dcbb72a30da0148076fade87260ddd1b5e28 # pin@v12.4.2
+        uses: grantbirki/branch-deploy@a589e8d69ed275ec1e1dbfa8de6e3429f077b08b # pin@v12.4.3
         id: deployment-check # ensure you have an 'id' set so you can reference the output of the Action later on
         with:
           merge_deploy_mode: "true" # required, tells the Action to use the merge commit workflow strategy
